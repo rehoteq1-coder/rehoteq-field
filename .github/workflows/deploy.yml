@@ -65,6 +65,12 @@ jobs:
           echo "Published files:"; ls -la _site
 
       - uses: actions/configure-pages@v5
+        # Tries to switch Pages on by itself using this workflow's token, so
+        # the repo does not have to be prepared by hand first. If your account
+        # does not permit that, do it once in the browser:
+        # Settings -> Pages -> Source -> GitHub Actions.
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
