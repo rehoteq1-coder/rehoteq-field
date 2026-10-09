@@ -22,7 +22,7 @@ That's the whole product in one tap.
 
 | File | What it is |
 |---|---|
-| `pwa/` | **The working app.** Served live, installable, works offline |
+| `index.html`, `app.js`, … | **The working app**, at the repo root (not in `pwa/` — that folder never made it into the repo) |
 | `REHOTEQ_Field_V1_SPEC.md` | Full V1 spec — positioning, screens, pricing, AI architecture, roadmap, risks |
 | `schema.sql` | Postgres/Supabase schema — 24 tables, RLS, triggers, hash chains |
 | `prototype.html` | 16-screen clickable walkthrough with design rationale |
@@ -35,14 +35,14 @@ That's the whole product in one tap.
 
 | File | Lines | What it does |
 |---|---|---|
-| `pwa/index.html` | 45 | App shell, manifest, service-worker registration |
-| `pwa/app.js` | 1350 | State, 15 views, all actions |
-| `pwa/data.js` | 506 | **This file is the product** — 11 checklists, 12 troubleshooting guides |
-| `pwa/pdf.js` | 240 | PDF writer from scratch — no library, works offline |
-| `pwa/report.js` | 376 | Service report + quotation layouts |
-| `pwa/qr.js` | 314 | QR encoder (byte mode, ECC-M) for solar passports |
-| `pwa/db.js` | 184 | IndexedDB layer — the seam where Supabase plugs in |
-| `pwa/sw.js` | 42 | Offline caching |
+| `index.html` | 45 | App shell, manifest, service-worker registration |
+| `app.js` | 1350 | State, 15 views, all actions |
+| `data.js` | 506 | **This file is the product** — 11 checklists, 12 troubleshooting guides |
+| `pdf.js` | 240 | PDF writer from scratch — no library, works offline |
+| `report.js` | 376 | Service report + quotation layouts |
+| `qr.js` | 314 | QR encoder (byte mode, ECC-M) for solar passports |
+| `db.js` | 184 | IndexedDB layer — the seam where Supabase plugs in |
+| `sw.js` | 42 | Offline caching |
 
 **No dependencies. No build step. No CDN.** Every line runs on the device.
 
@@ -132,6 +132,20 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.0.3** — **Fixed (again, on the code that is actually in this repo): 25
+dead buttons.** The repo held v1.0.0 application code underneath v1.0.2
+documentation, so the button fix described under v1.0.1 was not present in any
+shipped file. Every inline handler now routes through `ACT.`, which also dodges
+the `<div id="toast">` name collision permanently — `window.toast` is that div,
+so a bare `toast(...)` could never have worked. Found and fixed a **25th** dead
+button the earlier count missed: *"‹ Back to all systems"* on the solar passport
+screen, which called `S` and `render` from page scope. `ACT.dl` and `ACT.quote`
+were being bolted onto `ACT` from inside `showShareSheet()` where no audit could
+see them; both are now declared properly. Added `tests/run.js` — 32 checks
+including a static wiring audit over all 97 inline handlers and live tap tests.
+Cache → v4. **Still outstanding: the `rehoteq.ng` links (see v1.0.2) are NOT yet
+fixed in this tree.**
 
 **v1.0.2** — **Fixed: reports and QR stickers pointed at `rehoteq.ng`, a domain
 nobody had registered.** Anyone could have bought it and taken over every

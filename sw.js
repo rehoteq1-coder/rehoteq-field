@@ -2,7 +2,7 @@
    Cache the app shell so the technician can open the app in a basement,
    on a rooftop, or anywhere else the network has given up. */
 // Bump this on every deploy, or installed phones keep serving the old app.
-const CACHE = 'rehoteq-field-v3';
+const CACHE = 'rehoteq-field-v4';
 const SHELL = [
   './', 'index.html', 'styles.css', 'data.js', 'qr.js', 'pdf.js', 'db.js', 'report.js',
   'app.js', 'manifest.webmanifest'
