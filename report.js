@@ -105,8 +105,14 @@
     PDFT.text(c.p, 595.28 - M - refW, 38, job.ref, { size: 9, bold: true, color: WHITE });
     const dW = PDFT.width(dstr(job.completedAt || job.startedAt), 8.5, false);
     PDFT.text(c.p, 595.28 - M - dW, 52, dstr(job.completedAt || job.startedAt), { size: 8.5, color: [0.85, 0.94, 0.90] });
-    const sW = PDFT.width(job.status === 'sent' ? 'Issued' : 'Draft', 8.5, false);
-    PDFT.text(c.p, 595.28 - M - sW, 66, job.status === 'sent' ? 'Issued' : 'Draft', { size: 8.5, color: [0.85, 0.94, 0.90] });
+    // A job card that both parties have signed is locked evidence. The first
+    // PDF is generated before status flips to 'sent', so keying the badge on
+    // 'sent' alone stamped "Draft" on the very copy the customer receives.
+    const stage = job.status === 'sent' ? 'Issued'
+      : (job.lockedAt || job.status === 'completed') ? 'Completed'
+      : 'Draft';
+    const sW = PDFT.width(stage, 8.5, false);
+    PDFT.text(c.p, 595.28 - M - sW, 66, stage, { size: 8.5, color: [0.85, 0.94, 0.90] });
 
     c.y = 132;
 

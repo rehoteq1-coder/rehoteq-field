@@ -129,7 +129,9 @@
     const mine = all.filter(p => p.jobId === jobId && !p.deletedAt);
     const by = { before: [], during: [], after: [], serial: [] };
     mine.forEach(p => {
-      if (!p.url) p.url = URL.createObjectURL(p.blob);
+      // A restored backup can carry a photo record whose image data did not
+      // survive. createObjectURL(null) throws, so never call it unguarded.
+      if (!p.url && p.blob) p.url = URL.createObjectURL(p.blob);
       (by[p.stage] = by[p.stage] || []).push(p);
     });
     S.photos[jobId] = by;
@@ -1530,10 +1532,28 @@
     if (S.user && S.user.trade) S.trade = S.user.trade;
     await refreshJobs();
     await refreshEquipment();
-    // hydrate photo urls for any job we render
+    // hydrate photo urls for any job we render. A photo restored from a
+    // backup may have no blob; createObjectURL would throw and leave the
+    // technician with a white screen he cannot clear from the UI.
     const all = await DB.all('photos');
-    all.forEach(p => { if (!p.url) p.url = URL.createObjectURL(p.blob); });
+    all.forEach(p => { if (!p.url && p.blob) p.url = URL.createObjectURL(p.blob); });
     go(S.user ? 'home' : 'boot');
+  }
+
+  // Last line of defence. If boot ever throws, the technician must still get
+  // a screen he can act on — a dead white page on a roof is not an option.
+  function bootFailed(err) {
+    console.error('boot failed', err);
+    app().innerHTML =
+      '<div class="pad" style="padding-top:56px">' +
+      '<div class="empty"><div class="ei">⚠️</div>' +
+      '<div class="et">REHOTEQ Field could not start</div>' +
+      '<div class="ed">Your job cards are still on this device. Reload first; ' +
+      'if that fails, use Reset to clear local data and restore your last backup.</div></div>' +
+      '<button class="btn primary" onclick="location.reload()">Reload</button>' +
+      '<button class="btn ghost sm" style="margin-top:10px" onclick="ACT.wipe()">Reset this device</button>' +
+      '<div class="center mono" style="font-size:10px;color:#94A3B8;margin-top:14px;line-height:1.6">' +
+      esc(String((err && err.message) || err)) + '</div></div>';
   }
 
   window.addEventListener('online', () => { S.online = true; render(); });
@@ -1543,5 +1563,5 @@
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   }
 
-  boot();
+  boot().catch(bootFailed);
 })();
