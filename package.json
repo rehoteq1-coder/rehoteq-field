@@ -1,0 +1,14 @@
+{
+  "name": "rehoteq-field",
+  "version": "1.0.2",
+  "private": true,
+  "description": "REHOTEQ Field — the field assistant for technicians. Diagnose it. Prove it. Get paid.",
+  "scripts": {
+    "test": "node tests/run.js",
+    "serve": "python3 -m http.server 8000 --directory pwa"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.5",
+    "jsdom": "29.1.1"
+  }
+}
