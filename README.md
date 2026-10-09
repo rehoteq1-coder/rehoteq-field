@@ -133,6 +133,15 @@ helpers are unit-tested directly to cover that gap.
 
 ## Changelog
 
+**v1.0.4** — **Fixed: every printed link pointed at `rehoteq.ng`, a domain
+nobody owns.** Four hardcoded references — including the QR code glued to a
+customer's inverter and the verification line on every PDF — now come from a
+single `config.js`. Added `404.html`, so `/v/<ref>` and `/p/<id>` give a
+customer a real page instead of a GitHub error. Added the missing
+`.github/workflows/deploy.yml` and `CNAME`: nothing could ever have deployed
+without them. Domain guard added to the tests — it builds an actual PDF and
+fails if an unowned domain appears in it. 43 checks. Cache → v5.
+
 **v1.0.3** — **Fixed (again, on the code that is actually in this repo): 25
 dead buttons.** The repo held v1.0.0 application code underneath v1.0.2
 documentation, so the button fix described under v1.0.1 was not present in any

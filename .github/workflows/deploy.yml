@@ -1,0 +1,72 @@
+# REHOTEQ Field — test, then publish to field.rehoteq.com
+#
+# Pages source must be set to "GitHub Actions" (Settings -> Pages -> Source).
+#
+# Deploy only happens if the tests pass. If a change breaks the app, GitHub
+# refuses to publish it and the phones in the field keep the last good build.
+name: Test and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race each other.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - name: Run the suite
+        run: npm test
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: test
+    # Pull requests get tested but must never publish.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Publish only what the app needs. Specs, tests and the schema stay in
+      # the repo but are not served.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          for f in index.html 404.html config.js app.js data.js db.js pdf.js \
+                   qr.js report.js styles.css sw.js manifest.webmanifest \
+                   icon-192.png icon-512.png CNAME; do
+            if [ -f "$f" ]; then
+              cp "$f" _site/
+            else
+              echo "::error::missing required file $f"; exit 1
+            fi
+          done
+          echo "Published files:"; ls -la _site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

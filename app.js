@@ -684,7 +684,7 @@
             ${strip[0].lat !== null && strip[0].lat !== undefined ? strip[0].lat.toFixed(4) + ', ' + strip[0].lng.toFixed(4) + ' · ' : ''}
             ${esc((S.user && S.user.name) || '')}</div>` : ''}
         <div class="sigs">${sigBox('customer', 'Customer')}${sigBox('technician', 'Technician')}</div>
-        <div class="verify">🔐 Verified evidence · rehoteq.ng/v/<b>${esc(j.ref.replace(/[^A-Za-z0-9]/g, ''))}</b>
+        <div class="verify">🔐 Verified evidence · ${esc(CONFIG.domain)}/v/<b>${esc(CONFIG.slugify(j.ref))}</b>
           ${j.hashes && j.hashes.length ? `<br><span style="font-size:9px;opacity:.8" class="mono">SHA-256 ${esc(j.hashes[0].slice(0, 24))}…</span>` : ''}</div>
         <div class="disclaim">This report records work performed as described. It is not a certificate of
           regulatory compliance unless issued by a licensed contractor.</div>
@@ -850,7 +850,7 @@
   V.passport = () => {
     const eq = S.passportEq;
     if (eq) {
-      const url = 'https://rehoteq.ng/p/' + eq.slug;
+      const url = CONFIG.passportUrl(eq.slug);
       const qr = QR.encode(url);
       const hist = S.jobs.filter(j => j.equipment && j.equipment.serial === eq.serial);
       const inst = eq.installDate ? new Date(eq.installDate) : null;
@@ -1031,7 +1031,7 @@
       });
     }
     if (v === 'passport' && S.passportEq && $('qrCv')) {
-      QR.drawToCanvas($('qrCv'), QR.encode('https://rehoteq.ng/p/' + S.passportEq.slug), 3);
+      QR.drawToCanvas($('qrCv'), QR.encode(CONFIG.passportUrl(S.passportEq.slug)), 3);
     }
     if (v === 'settings') {
       DB.pending().then(p => { const el = $('queueCount'); if (el) el.textContent = p.length + ' pending'; });

@@ -79,9 +79,14 @@ function bootApp() {
   w.confirm = () => false;
   w.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {} });
 
-  for (const f of ['data.js', 'qr.js', 'pdf.js', 'db.js', 'report.js', 'app.js']) {
-    w.eval(fs.readFileSync(path.join(ROOT, f), 'utf8'));
-  }
+  // Load exactly the scripts index.html declares, in that order. Reading them
+  // from the page rather than hardcoding a list means the harness can never
+  // drift from what actually ships.
+  const indexSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const scripts = [...indexSrc.matchAll(/<script\s+src="([^"]+)"/g)].map(m => m[1]);
+  if (!scripts.length) throw new Error('index.html declares no scripts');
+  for (const f of scripts) w.eval(fs.readFileSync(path.join(ROOT, f), 'utf8'));
+  w.__scripts = scripts;
   return w;
 }
 
@@ -183,6 +188,86 @@ function suiteWiring(w) {
 }
 
 /* =====================================================================
+   SUITE 2b — domain guard
+
+   A QR sticker glued to a customer's inverter is permanent. v1.0.0
+   printed `rehoteq.ng`, which nobody had registered — anyone could have
+   bought it and owned every verification link we ever issued. Nothing
+   shipped may name a domain we do not control.
+   ===================================================================== */
+const OWNED = ['field.rehoteq.com', 'rehoteq.com'];
+const SHIPPED = ['index.html', '404.html', 'config.js', 'app.js', 'data.js',
+                 'db.js', 'pdf.js', 'qr.js', 'report.js', 'sw.js'];
+
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, ' ')   // block comments
+            .replace(/^\s*\/\/.*$/gm, ' ')        // whole-line // comments
+            .replace(/<!--[\s\S]*?-->/g, ' ');    // html comments
+}
+
+function suiteDomain(w) {
+  describe('2b. Domain guard — no printed link names a domain we do not own');
+
+  const offenders = [];
+  const foreign = [];
+  SHIPPED.forEach(f => {
+    const full = path.join(ROOT, f);
+    if (!fs.existsSync(full)) { offenders.push(f + ' is missing'); return; }
+    const src = stripComments(fs.readFileSync(full, 'utf8'));
+    if (/rehoteq\.ng/.test(src)) offenders.push(f + ' still names rehoteq.ng');
+    // any other absolute host that is not ours or a known third party
+    const hosts = src.match(/https?:\/\/([A-Za-z0-9.-]+)/g) || [];
+    hosts.forEach(h => {
+      const host = h.replace(/^https?:\/\//, '');
+      const okThirdParty = ['wa.me', 'www.w3.org'].includes(host);
+      if (!OWNED.includes(host) && !okThirdParty) foreign.push(f + ' \u2192 ' + host);
+    });
+  });
+
+  ok(offenders.length === 0, 'no shipped file references rehoteq.ng', offenders.join('\n      '));
+  ok(foreign.length === 0, 'no unexpected absolute hosts in shipped code', foreign.join('\n      '));
+
+  ok(typeof w.CONFIG === 'object' && w.CONFIG !== null, 'config.js is loaded by index.html');
+  if (!w.CONFIG) return;
+  eq(w.CONFIG.domain, 'field.rehoteq.com', 'CONFIG.domain is field.rehoteq.com');
+  eq(w.CONFIG.verifyUrl('RF-2026-00184'), 'https://field.rehoteq.com/v/RF202600184',
+    'verify links are built from CONFIG');
+  eq(w.CONFIG.passportUrl('SMS62202488314'), 'https://field.rehoteq.com/p/SMS62202488314',
+    'passport links are built from CONFIG');
+
+  // The PDF is the artefact that actually reaches a customer.
+  const job = {
+    ref: 'RF-2026-00184', trade: 'solar', jobType: 'Inverter fault diagnosis',
+    customer: { name: 'Mr. Adewale Ade', phone: '0803 000 0000', address: '14 Adeyemi St' },
+    site: { address: '14 Adeyemi St, Okitipupa', lat: 6.4975, lng: 4.7814 },
+    equipment: { model: 'SMS-II 6.2K', serial: 'SMS62-2024-88314', capacity: '6.2 kVA', installDate: '2025-07-24' },
+    fault: 'E03 on load.', diagnosis: 'Loose DC terminal.', work: 'Re-terminated and torqued.',
+    recommendation: 'Bank at 71% SoH.', materials: [{ desc: 'Copper lug', qty: 2, unitPrice: 1500 }],
+    labour: 25000, signatures: { customer: null, technician: null },
+    status: 'completed', startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+    lockedAt: new Date().toISOString(), createdAt: new Date().toISOString(), hashes: ['e3b0c442']
+  };
+  let pdfText = '';
+  try {
+    const bytes = w.REPORT.buildReport(job, { before: [], during: [], after: [], serial: [] }, {},
+      { name: 'Toye', company: 'REHOTEQ Technologies' });
+    pdfText = Buffer.from(bytes).toString('latin1');
+  } catch (e) {
+    ok(false, 'the service report PDF builds', String(e.message));
+    return;
+  }
+  ok(pdfText.startsWith('%PDF-'), 'the service report PDF builds');
+  ok(!/rehoteq\.ng/.test(pdfText), 'the generated PDF does NOT contain rehoteq.ng');
+  ok(/field\.rehoteq\.com/.test(pdfText), 'the generated PDF DOES contain field.rehoteq.com');
+
+  // And the QR sticker, which is the one that gets glued down permanently.
+  const qrUrl = w.CONFIG.passportUrl('SMS62202488314');
+  ok(!/rehoteq\.ng/.test(qrUrl), 'the QR sticker URL does not contain rehoteq.ng');
+  const m = w.QR.encode(qrUrl);
+  ok(m && m.size > 0, 'the QR code encodes (' + (m && m.size) + 'x' + (m && m.size) + ')');
+}
+
+/* =====================================================================
    SUITE 3 — live taps
 
    Renders the real screens and dispatches real click events, the way a
@@ -247,6 +332,7 @@ async function suiteTaps(w) {
 
   await suiteSurface(w);
   suiteWiring(w);
+  suiteDomain(w);
   await suiteTaps(w);
 
   console.log('\n' + '-'.repeat(58));
