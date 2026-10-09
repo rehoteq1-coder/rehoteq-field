@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>REHOTEQ Field</title>
+<meta name="theme-color" content="#0E7C5A">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<!--
+  GitHub Pages serves this file for any path it does not recognise, which is
+  how /v/<ref> and /p/<id> get handled without a server.
+
+  These are the two pages a CUSTOMER lands on — from a PDF link or from a QR
+  sticker on their inverter. They are not technician screens. They must load
+  on a cheap phone, on bad signal, and must never claim to have verified
+  something we cannot actually check: V1 has no backend.
+-->
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
+    background:#F1F5F9;color:#0F172A;line-height:1.55;
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px}
+  .card{background:#fff;border-radius:20px;max-width:430px;width:100%;
+    box-shadow:0 18px 44px rgba(15,23,42,.1);overflow:hidden}
+  .hdr{background:linear-gradient(150deg,#0E7C5A,#064E3B);color:#fff;padding:26px 24px}
+  .lg{display:flex;align-items:center;gap:11px}
+  .sq{width:40px;height:40px;border-radius:11px;background:#fff;color:#0E7C5A;
+    display:grid;place-items:center;font-weight:800;font-size:20px;flex:none}
+  .lg b{font-size:17px;font-weight:800;letter-spacing:-.02em}
+  .lg em{font-style:normal;opacity:.82;font-weight:600}
+  .tag{font-size:11px;opacity:.8;margin-top:12px;letter-spacing:.04em}
+  .body{padding:24px}
+  h1{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-bottom:8px}
+  p{font-size:13.5px;color:#475569;margin-bottom:14px}
+  .ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;
+    font-weight:700;background:#F1F5F9;border:1px solid #E2E8F0;border-radius:11px;
+    padding:13px 15px;margin-bottom:16px;word-break:break-all;color:#0F172A}
+  .note{background:#ECFDF5;border:1px solid #A7F3D0;border-radius:12px;
+    padding:13px 15px;font-size:12.5px;color:#065F46;margin-bottom:16px}
+  .btn{display:block;text-align:center;text-decoration:none;border-radius:12px;
+    padding:14px;font-weight:700;font-size:14px;margin-bottom:9px}
+  .p{background:#0E7C5A;color:#fff}
+  .g{background:#fff;color:#0F172A;border:1.5px solid #E2E8F0}
+  .ft{text-align:center;font-size:11px;color:#94A3B8;padding:0 24px 22px;line-height:1.6}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="hdr">
+      <div class="lg"><div class="sq">R</div><div><b>REHOTEQ</b> <em>Field</em></div></div>
+      <div class="tag" id="tag">Diagnose it. Prove it. Get paid.</div>
+    </div>
+    <div class="body" id="body"></div>
+    <div class="ft">REHOTEQ Technologies · Benin City, Nigeria</div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  var path = location.pathname.replace(/\/+$/, '');
+  var mV = path.match(/\/v\/([A-Za-z0-9]+)$/);
+  var mP = path.match(/\/p\/([A-Za-z0-9]+)$/);
+  var body = document.getElementById('body');
+  var tag  = document.getElementById('tag');
+
+  if (mV) {
+    tag.textContent = 'Service report check';
+    body.innerHTML =
+      '<h1>Service report</h1>' +
+      '<p>This reference came from a REHOTEQ service report.</p>' +
+      '<div class="ref">' + esc(mV[1]) + '</div>' +
+      '<div class="note">Quote this reference to REHOTEQ and we will confirm the ' +
+      'job, the technician who attended, and the date — along with the photographs ' +
+      'and signatures recorded on site.</div>' +
+      '<a class="btn p" href="https://wa.me/?text=' +
+        encodeURIComponent('Please confirm REHOTEQ service report ' + mV[1]) +
+        '">Check this report on WhatsApp</a>' +
+      '<a class="btn g" href="/">Open REHOTEQ Field</a>';
+  } else if (mP) {
+    tag.textContent = 'System passport';
+    body.innerHTML =
+      '<h1>System passport</h1>' +
+      '<p>You scanned the REHOTEQ sticker on your system.</p>' +
+      '<div class="ref">' + esc(mP[1]) + '</div>' +
+      '<div class="note">Your installer holds the full record for this system: ' +
+      'install date, equipment serial numbers, warranty, and every service visit. ' +
+      'Quote the code above when you contact them.</div>' +
+      '<a class="btn p" href="https://wa.me/?text=' +
+        encodeURIComponent('Hello REHOTEQ — service request for system ' + mP[1]) +
+        '">Request a service visit</a>' +
+      '<a class="btn g" href="/">Open REHOTEQ Field</a>';
+  } else {
+    tag.textContent = 'Page not found';
+    body.innerHTML =
+      '<h1>Page not found</h1>' +
+      '<p>That link does not match anything here. If you typed it from a printed ' +
+      'report, check the reference and try again.</p>' +
+      '<a class="btn p" href="/">Open REHOTEQ Field</a>';
+  }
+})();
+</script>
+</body>
+</html>

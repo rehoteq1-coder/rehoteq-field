@@ -6,6 +6,14 @@
 (function (global) {
   'use strict';
 
+  // Every printed link comes from config.js — never hardcode a domain here.
+  // The fallback keeps the PDF buildable if config.js somehow fails to load,
+  // rather than printing a broken or hostile URL.
+  const CFG = global.CONFIG || {
+    domain: 'field.rehoteq.com',
+    verifyLabel: ref => 'field.rehoteq.com/v/' + String(ref || '').replace(/[^A-Za-z0-9]/g, '')
+  };
+
   const GREEN  = [0.055, 0.486, 0.353];
   const INK    = [0.059, 0.090, 0.165];
   const MUTED  = [0.392, 0.455, 0.545];
@@ -105,8 +113,14 @@
     PDFT.text(c.p, 595.28 - M - refW, 38, job.ref, { size: 9, bold: true, color: WHITE });
     const dW = PDFT.width(dstr(job.completedAt || job.startedAt), 8.5, false);
     PDFT.text(c.p, 595.28 - M - dW, 52, dstr(job.completedAt || job.startedAt), { size: 8.5, color: [0.85, 0.94, 0.90] });
-    const sW = PDFT.width(job.status === 'sent' ? 'Issued' : 'Draft', 8.5, false);
-    PDFT.text(c.p, 595.28 - M - sW, 66, job.status === 'sent' ? 'Issued' : 'Draft', { size: 8.5, color: [0.85, 0.94, 0.90] });
+    // A job card that both parties have signed is locked evidence. The first
+    // PDF is generated before status flips to 'sent', so keying the badge on
+    // 'sent' alone stamped "Draft" on the very copy the customer receives.
+    const stage = job.status === 'sent' ? 'Issued'
+      : (job.lockedAt || job.status === 'completed') ? 'Completed'
+      : 'Draft';
+    const sW = PDFT.width(stage, 8.5, false);
+    PDFT.text(c.p, 595.28 - M - sW, 66, stage, { size: 8.5, color: [0.85, 0.94, 0.90] });
 
     c.y = 132;
 
@@ -246,7 +260,7 @@
     PDFT.rect(c.p, M, c.y - 4, CW, 44, [0.902, 0.957, 0.937]);
     PDFT.text(c.p, M + 12, c.y + 9, 'VERIFIED EVIDENCE', { size: 7.5, bold: true, color: GREEN });
     PDFT.text(c.p, M + 12, c.y + 21, 'This report is tamper-evident. Verify at', { size: 8, color: INK });
-    PDFT.text(c.p, M + 12, c.y + 33, 'rehoteq.ng/v/' + job.ref.replace(/[^A-Za-z0-9]/g, ''),
+    PDFT.text(c.p, M + 12, c.y + 33, CFG.verifyLabel(job.ref),
       { size: 8.5, bold: true, color: INK });
     if (job.hashes && job.hashes.length) {
       const sh = job.hashes[0].slice(0, 32);

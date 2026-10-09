@@ -129,7 +129,9 @@
     const mine = all.filter(p => p.jobId === jobId && !p.deletedAt);
     const by = { before: [], during: [], after: [], serial: [] };
     mine.forEach(p => {
-      if (!p.url) p.url = URL.createObjectURL(p.blob);
+      // A restored backup can carry a photo record whose image data did not
+      // survive. createObjectURL(null) throws, so never call it unguarded.
+      if (!p.url && p.blob) p.url = URL.createObjectURL(p.blob);
       (by[p.stage] = by[p.stage] || []).push(p);
     });
     S.photos[jobId] = by;
@@ -318,13 +320,13 @@
             📤 Back up now</button></div>` : ''}
         <div class="sec">Quick actions</div>
         <div class="grid2">
-          <button class="tile" onclick="go('library')"><span class="ic">📚</span><span class="t">Troubleshooting</span>
+          <button class="tile" onclick="ACT.go('library')"><span class="ic">📚</span><span class="t">Troubleshooting</span>
             <span class="d">${DATA.LIBRARY.length} guides · offline</span></button>
-          <button class="tile" onclick="go('jobs')"><span class="ic">📋</span><span class="t">My jobs</span>
+          <button class="tile" onclick="ACT.go('jobs')"><span class="ic">📋</span><span class="t">My jobs</span>
             <span class="d">${S.jobs.length} job cards</span></button>
-          <button class="tile" onclick="go('passport')"><span class="ic">🔳</span><span class="t">Solar passport</span>
+          <button class="tile" onclick="ACT.go('passport')"><span class="ic">🔳</span><span class="t">Solar passport</span>
             <span class="d">QR · warranty</span></button>
-          <button class="tile" onclick="go('settings')"><span class="ic">⚙︎</span><span class="t">Settings</span>
+          <button class="tile" onclick="ACT.go('settings')"><span class="ic">⚙︎</span><span class="t">Settings</span>
             <span class="d">Branding · plan</span></button>
         </div>
       </div>`;
@@ -336,19 +338,19 @@
       <div class="grid2">
         <button class="tile" onclick="ACT.startJob()"><span class="ic">📋</span><span class="t">New job card</span>
           <span class="d">Fault → work → report</span></button>
-        <button class="tile" onclick="go('library')"><span class="ic">🧰</span><span class="t">Troubleshooting</span>
+        <button class="tile" onclick="ACT.go('library')"><span class="ic">🧰</span><span class="t">Troubleshooting</span>
           <span class="d">Step-by-step fixes</span></button>
-        <button class="tile" onclick="go('jobs')"><span class="ic">🔎</span><span class="t">Find a job</span>
+        <button class="tile" onclick="ACT.go('jobs')"><span class="ic">🔎</span><span class="t">Find a job</span>
           <span class="d">History &amp; drafts</span></button>
-        <button class="tile" onclick="go('passport')"><span class="ic">🔳</span><span class="t">Solar passport</span>
+        <button class="tile" onclick="ACT.go('passport')"><span class="ic">🔳</span><span class="t">Solar passport</span>
           <span class="d">QR + warranty</span></button>
-        <button class="tile locked" onclick="toast('Equipment ID','Ships in V2 — point the camera, get the model')">
+        <button class="tile locked" onclick="ACT.toast('Equipment ID','Ships in V2 — point the camera, get the model')">
           <span class="lock">V2</span><span class="ic">🔢</span><span class="t">Identify equipment</span><span class="d">From a photo</span></button>
-        <button class="tile locked" onclick="toast('AI fault diagnosis','Ships in V3, once we have the job corpus to train it on')">
+        <button class="tile locked" onclick="ACT.toast('AI fault diagnosis','Ships in V3, once we have the job corpus to train it on')">
           <span class="lock">V3</span><span class="ic">🧠</span><span class="t">Diagnose a fault</span><span class="d">AI-ranked causes</span></button>
-        <button class="tile locked" onclick="toast('Voice copilot','Ships in V4 — speak, get a finished job card')">
+        <button class="tile locked" onclick="ACT.toast('Voice copilot','Ships in V4 — speak, get a finished job card')">
           <span class="lock">V4</span><span class="ic">🎤</span><span class="t">Ask by voice</span><span class="d">Hands-free</span></button>
-        <button class="tile" onclick="go('settings')"><span class="ic">⚙︎</span><span class="t">Settings</span>
+        <button class="tile" onclick="ACT.go('settings')"><span class="ic">⚙︎</span><span class="t">Settings</span>
           <span class="d">Profile · plan</span></button>
       </div>
       <div class="banner b-ok" style="margin-top:14px">
@@ -423,8 +425,8 @@
         </div>
         <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.6;padding-bottom:10px">
           Was this helpful?
-          <button class="chip" onclick="toast('Logged','Ratings like this become the V3 training set')">👍 Yes</button>
-          <button class="chip" onclick="toast('Flagged for review','A human reviews every correction')">👎 No</button>
+          <button class="chip" onclick="ACT.toast('Logged','Ratings like this become the V3 training set')">👍 Yes</button>
+          <button class="chip" onclick="ACT.toast('Flagged for review','A human reviews every correction')">👎 No</button>
         </div>
       </div>`;
   };
@@ -516,9 +518,9 @@
           </div>
         </div>
         ${text('recommendation', '5 · Recommendation', 'What should happen next — this is where the next job comes from')}
-        <button class="btn ghost sm" onclick="go('checklist')">
+        <button class="btn ghost sm" onclick="ACT.go('checklist')">
           ✅ Checklist ${j.checklist ? '· ' + j.checklist.items.filter(i => i.passed).length + '/' + j.checklist.items.length : ''}</button>
-        <button class="btn primary sm" style="margin-top:10px" onclick="go('photos')">📸 Job evidence</button>
+        <button class="btn primary sm" style="margin-top:10px" onclick="ACT.go('photos')">📸 Job evidence</button>
       </div>`;
   };
 
@@ -532,7 +534,7 @@
           <div class="et">No checklist for this job type yet</div>
           <div class="ed">We have checklists for ${Object.keys(DATA.CHECKLISTS).length} job types.
           This one is on the list — write it from your next real job.</div></div>
-          <button class="btn ghost" onclick="go('jobcard')">Back to job card</button></div>`;
+          <button class="btn ghost" onclick="ACT.go('jobcard')">Back to job card</button></div>`;
       }
       j.checklist = { name: tpl.name, version: tpl.version, items: tpl.items.map(i => Object.assign({}, i, { passed: false })) };
     }
@@ -588,7 +590,7 @@
             on the same page. Anyone can verify it at the link on the report.
           </div>
         </div>
-        <button class="btn primary" onclick="go('signoff')">Get sign-off ›</button>
+        <button class="btn primary" onclick="ACT.go('signoff')">Get sign-off ›</button>
       </div>`;
   };
 
@@ -682,13 +684,13 @@
             ${strip[0].lat !== null && strip[0].lat !== undefined ? strip[0].lat.toFixed(4) + ', ' + strip[0].lng.toFixed(4) + ' · ' : ''}
             ${esc((S.user && S.user.name) || '')}</div>` : ''}
         <div class="sigs">${sigBox('customer', 'Customer')}${sigBox('technician', 'Technician')}</div>
-        <div class="verify">🔐 Verified evidence · rehoteq.ng/v/<b>${esc(j.ref.replace(/[^A-Za-z0-9]/g, ''))}</b>
+        <div class="verify">🔐 Verified evidence · ${esc(CONFIG.domain)}/v/<b>${esc(CONFIG.slugify(j.ref))}</b>
           ${j.hashes && j.hashes.length ? `<br><span style="font-size:9px;opacity:.8" class="mono">SHA-256 ${esc(j.hashes[0].slice(0, 24))}…</span>` : ''}</div>
         <div class="disclaim">This report records work performed as described. It is not a certificate of
           regulatory compliance unless issued by a licensed contractor.</div>
       </div>
       <div class="actionbar">
-        <button class="btn ghost" style="flex:0 0 30%" onclick="go('jobcard')">Edit</button>
+        <button class="btn ghost" style="flex:0 0 30%" onclick="ACT.go('jobcard')">Edit</button>
         <button class="btn primary" style="flex:1" onclick="ACT.pdf()">📄 Generate PDF</button>
       </div>`;
   };
@@ -848,7 +850,7 @@
   V.passport = () => {
     const eq = S.passportEq;
     if (eq) {
-      const url = 'https://rehoteq.ng/p/' + eq.slug;
+      const url = CONFIG.passportUrl(eq.slug);
       const qr = QR.encode(url);
       const hist = S.jobs.filter(j => j.equipment && j.equipment.serial === eq.serial);
       const inst = eq.installDate ? new Date(eq.installDate) : null;
@@ -895,7 +897,7 @@
                 : '<div style="font-size:12px;color:#94A3B8">No recorded service yet</div>'}
             </div>
           </div>
-          <button class="btn ghost sm" onclick="S.passportEq=null;render()">‹ Back to all systems</button>
+          <button class="btn ghost sm" onclick="ACT.closePassport()">‹ Back to all systems</button>
         </div>`;
     }
     const list = S.equipment || [];
@@ -981,8 +983,8 @@
       bar = `<div class="appbar"><div class="row">
         <div class="brand"><div class="sq">R</div><b>REHOTEQ <em>Field</em></b></div>
         <div style="display:flex;gap:7px">
-          <button class="iconbtn" onclick="go('jobs')">🔎</button>
-          <button class="iconbtn" onclick="go('settings')">⚙︎</button>
+          <button class="iconbtn" onclick="ACT.go('jobs')">🔎</button>
+          <button class="iconbtn" onclick="ACT.go('settings')">⚙︎</button>
         </div></div>
         <div style="font-size:12px;color:var(--muted);margin-top:7px">
           Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'},
@@ -994,10 +996,10 @@
     const body = v === 'report' ? V.report() : `<div class="scroll">${(V[v] || V.home)()}</div>`;
     app().innerHTML = bar + body +
       (hasTab ? `<div class="tabbar">
-        <button class="tab ${v === 'home' ? 'on' : ''}" onclick="go('home')"><span class="ti">🏠</span>Home</button>
-        <button class="tab ${v === 'jobs' ? 'on' : ''}" onclick="go('jobs')"><span class="ti">📋</span>Jobs</button>
-        <button class="tab" onclick="go('library')"><span class="ti">🧰</span>Guides</button>
-        <button class="tab ${v === 'settings' ? 'on' : ''}" onclick="go('settings')"><span class="ti">⚙︎</span>Settings</button>
+        <button class="tab ${v === 'home' ? 'on' : ''}" onclick="ACT.go('home')"><span class="ti">🏠</span>Home</button>
+        <button class="tab ${v === 'jobs' ? 'on' : ''}" onclick="ACT.go('jobs')"><span class="ti">📋</span>Jobs</button>
+        <button class="tab" onclick="ACT.go('library')"><span class="ti">🧰</span>Guides</button>
+        <button class="tab ${v === 'settings' ? 'on' : ''}" onclick="ACT.go('settings')"><span class="ti">⚙︎</span>Settings</button>
       </div>` : '');
 
     postRender(v);
@@ -1029,7 +1031,7 @@
       });
     }
     if (v === 'passport' && S.passportEq && $('qrCv')) {
-      QR.drawToCanvas($('qrCv'), QR.encode('https://rehoteq.ng/p/' + S.passportEq.slug), 3);
+      QR.drawToCanvas($('qrCv'), QR.encode(CONFIG.passportUrl(S.passportEq.slug)), 3);
     }
     if (v === 'settings') {
       DB.pending().then(p => { const el = $('queueCount'); if (el) el.textContent = p.length + ' pending'; });
@@ -1181,6 +1183,24 @@
         report: 'signoff', quote: 'report', passport: 'home'
       };
       go(map[S.view] || 'home');
+    },
+
+    // Was inline as "S.passportEq=null;render()" — neither S nor render is
+    // reachable from the page, so the button was dead.
+    closePassport() { S.passportEq = null; render(); },
+
+    /* Share-sheet actions. These used to be bolted onto ACT from inside
+       showShareSheet(), which meant no audit could see them and a throw
+       before the assignment left the buttons dead. Declared here instead. */
+    dl(url, filename) {
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      toast('Saved to Downloads');
+    },
+    quote() {
+      $('paywall').classList.remove('show');
+      S.quote = null;
+      go('quote');
     },
 
     openLib(id) { S.libEntry = DATA.LIBRARY.find(e => e.id === id); go('libdetail'); },
@@ -1496,11 +1516,6 @@
         </div>
       </div>`;
     sheet.classList.add('show');
-    ACT.dl = (u, f) => {
-      const a = document.createElement('a'); a.href = u; a.download = f; a.click();
-      toast('Saved to Downloads');
-    };
-    ACT.quote = () => { sheet.classList.remove('show'); S.quote = null; go('quote'); };
   }
 
   /* ---------------- equipment / passport ------------------------------ */
@@ -1530,10 +1545,28 @@
     if (S.user && S.user.trade) S.trade = S.user.trade;
     await refreshJobs();
     await refreshEquipment();
-    // hydrate photo urls for any job we render
+    // hydrate photo urls for any job we render. A photo restored from a
+    // backup may have no blob; createObjectURL would throw and leave the
+    // technician with a white screen he cannot clear from the UI.
     const all = await DB.all('photos');
-    all.forEach(p => { if (!p.url) p.url = URL.createObjectURL(p.blob); });
+    all.forEach(p => { if (!p.url && p.blob) p.url = URL.createObjectURL(p.blob); });
     go(S.user ? 'home' : 'boot');
+  }
+
+  // Last line of defence. If boot ever throws, the technician must still get
+  // a screen he can act on — a dead white page on a roof is not an option.
+  function bootFailed(err) {
+    console.error('boot failed', err);
+    app().innerHTML =
+      '<div class="pad" style="padding-top:56px">' +
+      '<div class="empty"><div class="ei">⚠️</div>' +
+      '<div class="et">REHOTEQ Field could not start</div>' +
+      '<div class="ed">Your job cards are still on this device. Reload first; ' +
+      'if that fails, use Reset to clear local data and restore your last backup.</div></div>' +
+      '<button class="btn primary" onclick="location.reload()">Reload</button>' +
+      '<button class="btn ghost sm" style="margin-top:10px" onclick="ACT.wipe()">Reset this device</button>' +
+      '<div class="center mono" style="font-size:10px;color:#94A3B8;margin-top:14px;line-height:1.6">' +
+      esc(String((err && err.message) || err)) + '</div></div>';
   }
 
   window.addEventListener('online', () => { S.online = true; render(); });
@@ -1543,5 +1576,5 @@
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   }
 
-  boot();
+  boot().catch(bootFailed);
 })();
