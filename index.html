@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<title>REHOTEQ Field</title>
+<meta name="theme-color" content="#0E7C5A">
+<meta name="description" content="The AI field assistant for technicians. Diagnose it. Prove it. Get paid.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="shell">
+    <div class="statusbar">
+      <span id="clock">9:41</span>
+      <div class="r">
+        <span id="net" style="font-size:10px">LTE</span>
+        <span style="display:inline-block;width:20px;height:10px;border:1.4px solid #0F172A;
+          border-radius:3px;position:relative;opacity:.8">
+          <i style="position:absolute;inset:1.2px;width:66%;background:#0F172A;border-radius:1.5px;display:block"></i>
+        </span>
+      </div>
+    </div>
+    <div id="app" style="flex:1;display:flex;flex-direction:column;overflow:hidden"></div>
+    <div class="toast" id="toast"></div>
+    <div class="pw" id="paywall"></div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="qr.js"></script>
+  <script src="pdf.js"></script>
+  <script src="db.js"></script>
+  <script src="report.js"></script>
+  <script src="app.js"></script>
+  <script>
+    function tickClock(){
+      const d=new Date(); let h=d.getHours()%12||12; const m=d.getMinutes();
+      document.getElementById('clock').textContent = h+':'+(m<10?'0':'')+m;
+      document.getElementById('net').textContent = navigator.onLine ? 'LTE' : 'OFFLINE';
+    }
+    tickClock(); setInterval(tickClock,20000);
+  </script>
+</body>
+</html>
