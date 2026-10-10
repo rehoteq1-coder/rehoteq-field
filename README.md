@@ -116,7 +116,7 @@ npm install
 npm test
 ```
 
-143 automated checks in nine suites: a full walkthrough of every screen and
+161 automated checks in ten suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -147,6 +147,33 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.1.2** — **Sign-in built, and switched off on purpose.**
+
+`firebase.js` is new: the Firebase layer, wrapped so that it is **inert until
+`config.js` says otherwise.** `firebase.enabled` is still `false`, so the app
+today behaves exactly as it did before Firebase existed.
+
+The load-bearing decision is that the SDK is **not** in the service worker's
+precache list. It is fetched the first time someone taps *Sign in* and cached
+on the way past. A technician who never signs in therefore never downloads it
+and never needs the network — offline-native with no account survives the move
+to the cloud. The first sign-in needs a connection, which is fair; every one
+after it does not.
+
+Sign-in uses **redirect, not popup**, because the popup path is unreliable in
+an installed PWA on Android.
+
+Settings → Account now says plainly that **you do not need an account** —
+every job card, report and photo works offline without one, and signing in is
+only for the subscription and, later, a team. Tapping Sign in while the switch
+is off shows a message rather than failing.
+
+Two new tests are worth naming. The domain guard caught `www.gstatic.com` the
+moment it appeared — which is exactly its job — and it is now allow-listed
+deliberately rather than silently. And a test asserts the SDK is **absent**
+from the precache list, because adding it there would quietly undo the whole
+offline-first design.
 
 **v1.1.1** — **Firebase config wired, security rules written.**
 

@@ -16,8 +16,51 @@
   const S = {
     view: 'boot', user: null, trade: 'solar', job: null, jobs: [],
     photos: {}, sig: {}, libEntry: null, quote: null, lastBackup: null,
-    passportEq: null, online: navigator.onLine, search: '', toastT: null
+    passportEq: null, online: navigator.onLine, search: '', toastT: null,
+    // The signed-in Firebase user, or null. Null is a perfectly good way
+    // to use the app — signing in is optional, never required.
+    fbUser: null
   };
+
+  /* ---------------- account ----------------------------------------
+     Sign-in exists only to answer three questions the device cannot
+     answer for itself: are you actually Pro, when does your trial end,
+     and who are your technicians. Nothing about doing a job needs it.
+     ------------------------------------------------------------------ */
+  function accountCard() {
+    const u = S.fbUser;
+    if (u) {
+      return `
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch">Account</div>
+          <div class="cb" style="display:flex;align-items:center;gap:11px">
+            ${u.photo
+              ? '<img src="' + esc(u.photo) + '" alt="" style="width:38px;height:38px;border-radius:50%;flex:none">'
+              : '<div style="width:38px;height:38px;border-radius:50%;flex:none;background:var(--primary-l);display:grid;place-items:center;color:var(--primary-d);font-weight:800">'
+                + esc((u.name || u.email || '?').charAt(0).toUpperCase()) + '</div>'}
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:13.5px">${esc(u.name || 'Signed in')}</div>
+              <div style="font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis">${esc(u.email)}</div>
+            </div>
+          </div>
+          <div class="srow" onclick="ACT.signOut()"><span class="si">${ICON('log-out', 17)}</span>
+            <span class="sl">Sign out</span><span style="color:#94A3B8">›</span></div>
+        </div>`;
+    }
+    return `
+      <div class="card" style="margin-bottom:12px">
+        <div class="ch">Account</div>
+        <div class="cb">
+          <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:11px">
+            You do not need an account. Every job card, report and photo works
+            offline without one. Signing in is only for your subscription and,
+            later, your team.
+          </div>
+          <button class="btn primary" style="width:100%" onclick="ACT.signIn()">
+            ${ICON('log-in', 17)} Sign in with Google</button>
+        </div>
+      </div>`;
+  }
 
   /* ---------------- helpers ---------------------------------------- */
   function esc(s) {
@@ -875,6 +918,7 @@
           <div class="srow" style="cursor:pointer" onclick="ACT.editProfile()">
             <span class="si">${ICON('pencil', 17)}</span><span class="sl">Edit profile</span><span style="color:#94A3B8">›</span></div>
         </div>
+        ${accountCard()}
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Subscription</div>
           <div class="srow"><span class="si">${ICON('star', 17)}</span>
@@ -1456,6 +1500,27 @@
     contact() {
       window.open(CONFIG.waUrl('Hello REHOTEQ — '), '_blank');
     },
+    // Sign-in is a redirect, so the app reloads and firebase.js calls
+    // finishRedirect() on the way back in. A failure here must never
+    // leave the technician stuck: the app is usable without an account.
+    async signIn() {
+      if (!window.FB || !window.FB.enabled()) {
+        return toast('Sign-in is not switched on yet', 'Everything else works without it');
+      }
+      try {
+        await window.FB.signIn();
+      } catch (e) {
+        toast('Could not reach the sign-in page', 'Check your connection and try again');
+      }
+    },
+    async signOut() {
+      if (!window.FB) return;
+      try { await window.FB.signOut(); } catch (e) { /* already out */ }
+      S.fbUser = null;
+      render();
+      toast('Signed out', 'Your job cards stay on this phone');
+    },
+
     togglePlan(el) {
       S.user.plan = S.user.plan === 'free' ? 'pro' : 'free';
       el.classList.toggle('on', S.user.plan !== 'free');
@@ -1780,6 +1845,18 @@
 
   window.addEventListener('online', () => { S.online = true; render(); });
   window.addEventListener('offline', () => { S.online = false; render(); });
+
+  // Firebase is optional and inert until config.js switches it on. When it
+  // is off, none of this runs and the app is untouched by any of it.
+  if (window.FB && window.FB.enabled()) {
+    window.FB.finishRedirect().then(function (u) {
+      if (u) S.fbUser = u;
+    }).catch(function () { /* no redirect pending, carry on */ });
+    window.FB.onUser(function (u) {
+      S.fbUser = u;
+      if (S.view === 'settings') render();
+    });
+  }
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));

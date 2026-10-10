@@ -34,7 +34,7 @@ if (!fs.existsSync(SRC)) {
 /* The icons the app actually uses. Add here, run `npm run icons`, commit. */
 const NEEDED = [
   // navigation
-  'house', 'clipboard-list', 'wrench', 'search', 'settings-2',
+  'house', 'clipboard-list', 'wrench', 'search', 'settings-2', 'log-in', 'log-out',
   // trades
   'zap', 'cctv', 'router',
   // job flow

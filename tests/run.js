@@ -309,7 +309,12 @@ function suiteDomain(w) {
     const hosts = src.match(/https?:\/\/([A-Za-z0-9.-]+)/g) || [];
     hosts.forEach(h => {
       const host = h.replace(/^https?:\/\//, '');
-      const okThirdParty = ['wa.me', 'www.w3.org'].includes(host);
+      const okThirdParty = ['wa.me', 'www.w3.org', 'www.gstatic.com'].includes(host);
+      // www.gstatic.com is Google's CDN, which serves the Firebase SDK. It
+      // is loaded lazily and only when someone actually taps Sign in, so a
+      // technician who never signs in never touches it. It is allow-listed
+      // here deliberately rather than silently — the point of this guard is
+      // that no external host appears in the app by accident.
       // flutterwave.com is the payment host. It is allow-listed here so a
       // typo'd or substituted payment domain still fails the build — the
       // point of the guard is that no host appears by accident.
@@ -765,6 +770,65 @@ function suiteRules() {
 }
 
 /* =====================================================================
+   SUITE 5 — Firebase wiring (all of it inert until switched on)
+   ===================================================================== */
+async function suiteFirebase(w) {
+  describe('5. Firebase wiring');
+
+  const indexSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+
+  ok(/<script src="firebase\.js"><\/script>/.test(indexSrc), 'index.html loads firebase.js');
+  ok(w.__scripts.indexOf('firebase.js') < w.__scripts.indexOf('app.js'),
+    'firebase.js loads before app.js, so FB exists when views render');
+  ok(/'firebase\.js'/.test(sw), 'sw.js caches firebase.js');
+
+  // The whole point: a technician who never signs in must never download
+  // the SDK. If it is in the precache list, every install fetches it and
+  // offline-native is gone.
+  const shell = (sw.match(/const SHELL = \[([\s\S]*?)\]/) || ['', ''])[1];
+  ok(!/gstatic/.test(shell),
+    'the Firebase SDK is NOT precached — a user who never signs in never downloads it');
+  ok(/gstatic[\s\S]{0,120}firebasejs/.test(sw),
+    'but it IS cached on first use, so sign-in works offline afterwards');
+
+  // Off until we say otherwise.
+  ok(/enabled:\s*false/.test(cfg), 'config.js has Firebase switched off');
+  eq(w.CONFIG.firebase.enabled, false, 'CONFIG.firebase.enabled is false');
+  ok(typeof w.FB === 'object', 'FB is exposed to the page');
+  eq(w.FB.enabled(), false, 'FB.enabled() is false, so the layer is inert');
+  eq(await w.FB.ready(), false, 'FB.ready() resolves false rather than throwing');
+  eq(w.FB.user(), null, 'with Firebase off there is no signed-in user');
+
+  // The switch must be the only thing standing between the app and the
+  // cloud: flipping it on for real is a deliberate act, not a side effect.
+  ok(/function enabled\(\)[\s\S]{0,200}c\.enabled\s*&&\s*c\.apiKey/.test(
+      fs.readFileSync(path.join(ROOT, 'firebase.js'), 'utf8')),
+    'firebase.js gates every entry point on the config switch');
+
+  // The screen has to say so plainly: signing in is optional.
+  w.ACT.go('settings');
+  await sleep(60);
+  const txt = w.document.body.textContent || '';
+  ok(/Account/.test(txt), 'Settings has an Account section');
+  ok(/You do not need an account/.test(txt),
+    'Settings says plainly that an account is not required');
+  const signInBtn = [...w.document.querySelectorAll('[onclick]')]
+    .find(b => (b.getAttribute('onclick') || '').includes('ACT.signIn'));
+  ok(!!signInBtn, 'there is a Sign in control');
+  ok(typeof w.ACT.signIn === 'function', 'ACT.signIn exists');
+  ok(typeof w.ACT.signOut === 'function', 'ACT.signOut exists');
+
+  // Tapping it with Firebase off must be a message, never a crash.
+  let threw = null;
+  try { await w.ACT.signIn(); } catch (e) { threw = e.message; }
+  ok(!threw, 'tapping Sign in with Firebase off does not throw', threw || '');
+  w.ACT.go('home');
+  await sleep(30);
+}
+
+/* =====================================================================
    run
    ===================================================================== */
 (async () => {
@@ -787,6 +851,7 @@ function suiteRules() {
   await suiteBrief(w);
   await suiteTaps(w);
   suiteRules();
+  await suiteFirebase(w);
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);
