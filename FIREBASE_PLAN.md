@@ -119,6 +119,52 @@ account should be in your name, not mine.
 
 ---
 
+## Naming the project
+
+The **display name** can be changed later. The **project ID cannot** — it is
+permanent and globally unique. So pick the ID carefully and let the name
+follow it.
+
+Rules: 6–30 characters, lowercase letters, digits and hyphens, must start with
+a letter and cannot end with a hyphen.
+
+**Use:**
+
+| Project | ID | What it is for |
+|---|---|---|
+| Production | `rehoteq-field` | real customers, real money |
+| Development | `rehoteq-field-dev` | building and breaking things |
+
+If `rehoteq-field` is already taken globally (plausible — IDs are worldwide),
+use `rehoteq-field-prod` and keep `-dev` matching.
+
+**Why two.** The Firebase console looks *identical* for both. The commonest way
+people destroy a business is deleting a collection in the wrong browser tab. A
+`-dev` suffix in the URL is the only thing standing between you and that
+mistake. Both projects share one billing account and both sit inside Blaze's
+free allowance, so the second costs nothing.
+
+**What not to use:** anything with a version in it (`rehoteq-v1`), or `test`,
+`new`, `temp`. They are permanent and they will still be there in three years.
+
+## Sequencing — sell Pro before you build Business
+
+The build order above lists stages 2–4 (auth, entitlement, payment webhook)
+before stages 5–6 (sub-users, sync). That ordering is deliberate and it is the
+most important advice in this document.
+
+**Stages 2–4 let you charge a solo technician.** That is the market you
+actually have — one person with a toolbag, in Suleja or Okitipupa.
+
+**Stages 5–6 are the Business plan**, and they are the hardest, most
+security-sensitive part of the whole system. They also currently have **zero
+customers waiting for them.** Nobody has asked you for sub-users except you.
+
+So: build the ability to take money from one technician, get ten of them
+paying, and build teams when the eleventh asks for it. Building teams first
+means spending the hardest month of work on a feature with no buyer, and
+discovering afterwards that you guessed the workflow wrong.
+
 ## What I need from you
 
 1. Create a Firebase project (your Google account).
