@@ -283,3 +283,23 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .srow .sv{color:var(--muted);font-size:12px;font-weight:550;text-align:right}
 .offline-dot{width:7px;height:7px;border-radius:50%;background:var(--danger);display:inline-block;margin-right:5px}
 .online-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);display:inline-block;margin-right:5px}
+
+/* --- icons ---------------------------------------------------------
+   Inline SVG, 24x24 on one grid, 2px stroke, inheriting colour from
+   currentColor. The font-size rules that used to size the emoji are
+   gone; sizing is now explicit on each ICON() call, so an icon can
+   never be resized by a stray inherited font-size.
+   ----------------------------------------------------------------- */
+.icon{display:inline-block;vertical-align:-.15em;flex:none}
+.ic svg,.si svg,.ti svg,.ei svg,.tk svg,.ok svg,.cam svg,.stag svg{display:block}
+.tile .ic,.tab .ti,.empty .ei,.srow .si,.searchbox .si{display:flex;align-items:center;justify-content:center}
+.tile .ic{color:var(--primary)}
+.tab .ti{color:var(--muted)}
+.tab.on .ti{color:var(--primary)}
+.empty .ei{color:var(--muted);opacity:.65}
+.srow .si{color:var(--primary)}
+.searchbox .si{color:var(--muted);opacity:.6}
+.wh .icon,.banner .icon{vertical-align:-2px;margin-right:2px}
+.chip .icon{color:currentColor}
+.btn .icon{vertical-align:-3px;margin-right:6px}
+.iconbtn .icon{vertical-align:middle}

@@ -36,7 +36,8 @@ That's the whole product in one tap.
 | File | Lines | What it does |
 |---|---|---|
 | `index.html` | 45 | App shell, manifest, service-worker registration |
-| `app.js` | 1350 | State, 15 views, all actions |
+| `app.js` | 1746 | State, 15 views, all actions |
+| `icons.js` | 117 | Generated inline SVG icon set (Lucide, ISC) |
 | `data.js` | 506 | **This file is the product** — 11 checklists, 12 troubleshooting guides |
 | `pdf.js` | 240 | PDF writer from scratch — no library, works offline |
 | `report.js` | 376 | Service report + quotation layouts |
@@ -112,7 +113,7 @@ npm install
 npm test
 ```
 
-66 automated checks in six suites: a full walkthrough of every screen and
+103 automated checks in seven suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -143,6 +144,39 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.0.8** — **Real payment links, both WhatsApp lines, and icons instead of
+emoji.**
+
+*Money.* The Pro and Business buttons now open the actual Flutterwave payment
+pages, configured in `config.js` (`payments.proMonthlyUrl`, `proAnnualUrl`,
+`businessUrl`). A button is rendered only when its link is set, so there is
+never a payment button with nowhere to go; with no links at all it falls back
+to a WhatsApp subscribe route. The ₦30,000/year link has not been supplied, so
+the annual button simply is not drawn rather than being drawn broken.
+
+*People.* Both REHOTEQ lines — 0703 630 2585 and 0816 651 9177 — are in
+`config.js`, and every WhatsApp route builds its link through `CONFIG.waUrl()`.
+The share sheet now aims at the **customer's** number when the job card has one
+(`CONFIG.waNumber()` normalises `0803 000 0000` into the international form
+`wa.me` needs); the passport page still aims at REHOTEQ, because a member of
+the public must never be left guessing who to message.
+
+*Icons.* The interface was drawn with 112 emoji across 53 glyphs. Emoji render
+differently on every device — the app looked different on a Tecno than on an
+iPhone — and their colour cannot be set, which is exactly what a selected tab
+needs to do. They are replaced by inline SVG from **Lucide** (ISC licence,
+commercial use permitted), one 24×24 grid, one 2px stroke, `currentColor`, so
+the icons are consistent by construction and inherit the tab's colour.
+`icons.js` is generated once by `npm run icons` and committed, so there is
+still **no build step and no dependency at runtime**. One icon is ours:
+`solar-panel`, because Lucide has only a generic sun, and a sun reads as
+*weather* rather than *solar* — a real difference when a technician is picking
+a trade in a hurry.
+
+⚠️ **A Flutterwave secret key must never enter this repository.** Payment
+*links* are safe to publish; a `sk_live_` key is not. See the warning in
+`config.js`, and the test that fails if one appears in any shipped file.
 
 **v1.0.7** — **Pro is now ₦3,000 / month, ₦30,000 / year** (was ₦4,000 /
 ₦40,000). Changed in one place — `PLANS` in `data.js` — then traced through the

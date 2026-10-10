@@ -3,3 +3,6 @@ node_modules/
 *.log
 rehotech-field-app.zip
 rehoteq-field-repo.zip
+
+# scratch: downloaded reference images, never ship these
+image-search/

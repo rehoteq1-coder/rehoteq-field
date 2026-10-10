@@ -117,6 +117,66 @@ async function suiteSurface(w) {
 }
 
 /* =====================================================================
+   SUITE 1b — icons
+
+   Emoji rendered differently on every device and could not be tinted,
+   which is exactly what a selected tab needs. The app now draws inline
+   SVG instead. The failure mode this suite exists to catch is a typo'd
+   icon name: ICON() degrades to a dot rather than throwing, so one
+   wrong character would ship as a silent hole in the UI.
+   ===================================================================== */
+async function suiteIcons(w) {
+  describe('1b. Icons');
+
+  const indexSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const swSrc = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  ok(/<script src="icons\.js"><\/script>/.test(indexSrc), 'index.html loads icons.js');
+  ok(w.__scripts.includes('icons.js'), 'the harness loads icons.js, so it really ships');
+  ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
+    'icons.js loads before app.js, so ICON() exists when the first view renders');
+  ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
+
+  ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
+  ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
+
+  const svg = w.ICON('zap', 20);
+  ok(/^<svg /.test(svg), 'ICON() returns an inline <svg>');
+  ok(/viewBox="0 0 24 24"/.test(svg), 'every icon sits on the same 24x24 grid');
+  ok(/stroke="currentColor"/.test(svg), 'icons inherit colour from currentColor');
+  ok(/stroke-width="2"/.test(svg), 'every icon uses the same 2px stroke weight');
+  ok(/width="20"/.test(svg) && /height="20"/.test(svg), 'ICON() honours the requested size');
+  ok(/aria-hidden="true"/.test(svg), 'icons are aria-hidden; the text label carries the meaning');
+
+  ok(w.ICON('definitely-not-an-icon', 16).length > 0,
+    'an unknown icon name returns markup, never an empty string');
+
+  const used = new Set();
+  for (const f of ['app.js', 'data.js']) {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    for (const m of src.matchAll(/ICON\(\s*'([a-z0-9-]+)'/g)) used.add(m[1]);
+    for (const m of src.matchAll(/icon:\s*'([a-z0-9-]+)'/g)) used.add(m[1]);
+  }
+  ok(used.size > 20, 'the app draws a real icon set (' + used.size + ' names)');
+  const missing = [...used].filter(n => !w.ICONS[n]);
+  eq(missing.length, 0, 'every icon name used in the app resolves'
+    + (missing.length ? ' — missing: ' + missing.join(', ') : ''));
+
+  for (const t of w.DATA.TRADES) {
+    ok(!!w.ICONS[t.icon], 'trade "' + t.id + '" icon "' + t.icon + '" resolves');
+  }
+
+  const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2300}-\u{23FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\uFE0F\u00AE]/u;
+  for (const f of ['app.js', 'index.html', 'data.js', '404.html']) {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const bad = src.split('\n')
+      .map((l, i) => [i + 1, l])
+      .filter(([, l]) => EMOJI.test(l));
+    eq(bad.length, 0, f + ' ships no emoji'
+      + (bad.length ? ' — line ' + bad[0][0] + ': ' + bad[0][1].trim().slice(0, 60) : ''));
+  }
+}
+
+/* =====================================================================
    SUITE 2 — wiring audit (static)
 
    Reads every inline handler out of app.js and proves the code it names
@@ -220,7 +280,13 @@ function suiteDomain(w) {
     hosts.forEach(h => {
       const host = h.replace(/^https?:\/\//, '');
       const okThirdParty = ['wa.me', 'www.w3.org'].includes(host);
-      if (!OWNED.includes(host) && !okThirdParty) foreign.push(f + ' \u2192 ' + host);
+      // flutterwave.com is the payment host. It is allow-listed here so a
+      // typo'd or substituted payment domain still fails the build — the
+      // point of the guard is that no host appears by accident.
+      const okPayment = /^flutterwave\.com$/.test(host);
+      if (!OWNED.includes(host) && !okThirdParty && !okPayment) {
+        foreign.push(f + ' \u2192 ' + host);
+      }
     });
   });
 
@@ -394,13 +460,47 @@ async function suitePricing(w) {
   });
   ok(dead.length === 0, 'no dead buttons in the paywall', dead.join(', '));
 
-  // Nothing is configured yet, so no payment button may be offered.
-  if (!w.CONFIG.payments.proMonthlyUrl || !w.CONFIG.payments.proAnnualUrl) {
-    ok(!handlers.some(h => (h || '').includes('payMonthly')),
-      'with no payment links set, no Flutterwave button is offered');
-    ok(handlers.some(h => (h || '').includes('subscribe')),
-      'the WhatsApp subscribe route is offered instead');
+  // A plan with a link gets a button; a plan without one gets nothing.
+  // No button anywhere may go nowhere.
+  const hasMonthly = !!w.CONFIG.payments.proMonthlyUrl;
+  const hasAnnual = !!w.CONFIG.payments.proAnnualUrl;
+  const hasBusiness = !!w.CONFIG.payments.businessUrl;
+  const has = h => handlers.some(x => (x || '').includes(h));
+  eq(has('payMonthly'), hasMonthly, 'monthly button is offered iff a monthly link is set');
+  eq(has('payAnnual'), hasAnnual, 'annual button is offered iff an annual link is set');
+  eq(has('payBusiness'), hasBusiness, 'business button is offered iff a business link is set');
+  if (hasMonthly || hasAnnual || hasBusiness) {
+    ok(!has('subscribe'),
+      'with payment links configured, the WhatsApp fallback is not the primary action');
+  } else {
+    ok(has('subscribe'), 'with no links configured, the WhatsApp route is offered');
   }
+
+  // Every payment link must be a public payment page, not an API endpoint.
+  [w.CONFIG.payments.proMonthlyUrl, w.CONFIG.payments.proAnnualUrl, w.CONFIG.payments.businessUrl]
+    .filter(Boolean)
+    .forEach(u => ok(/^https:\/\/[a-z0-9.-]+\/(pay|[\w-]*$)/i.test(u),
+      'payment link is a public payment page: ' + u));
+
+  // The two WhatsApp numbers must not drift apart: 404.html is a
+  // standalone page that cannot read config.js, so it hardcodes one.
+  const primary = w.CONFIG.support.whatsapp[0];
+  ok(/^234\d{10}$/.test(primary), 'the primary WhatsApp number is in international format');
+  // Phone numbers arrive in whatever form whoever typed them used, and a
+  // wa.me link built from a local-format number silently goes nowhere.
+  eq(w.CONFIG.waNumber('0803 000 0000'), '2348030000000', 'a local 11-digit number becomes international');
+  eq(w.CONFIG.waNumber('8030000000'), '2348030000000', 'a bare 10-digit number becomes international');
+  eq(w.CONFIG.waNumber('+234 803 000 0000'), '2348030000000', 'an already-international number is left alone');
+  eq(w.CONFIG.waNumber(''), '', 'an empty number normalises to empty, not to a dead link');
+  eq(w.CONFIG.waNumber('ext 12'), '', 'a value with no usable digits normalises to empty');
+  w.CONFIG.support.whatsapp.forEach(n =>
+    eq(w.CONFIG.waNumber(n), n, 'REHOTEQ line ' + n + ' survives normalisation'));
+
+  const page404 = fs.readFileSync(path.join(ROOT, '404.html'), 'utf8');
+  ok(page404.includes("'2347036302585'") || page404.includes(primary),
+    '404.html points WhatsApp at the same REHOTEQ line as config.js');
+  const bare = (page404.match(/https:\/\/wa\.me\/\?text/g) || []).length;
+  eq(bare, 0, '404.html has no wa.me link that leaves the customer to guess who to message');
 
   // A secret key in a static PWA is a blank cheque: every visitor can read
   // this source. Catch it the same way we catch rehoteq.ng.
@@ -482,6 +582,7 @@ async function suiteTaps(w) {
   }
 
   await suiteSurface(w);
+  await suiteIcons(w);
   suiteWiring(w);
   suiteDomain(w);
   suiteBranding(w);

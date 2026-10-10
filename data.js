@@ -9,10 +9,10 @@
   'use strict';
 
   const TRADES = [
-    { id: 'electrical', icon: '⚡', name: 'Electrical', desc: 'Wiring · inverter · DB' },
-    { id: 'solar',      icon: '☀️', name: 'Solar',      desc: 'PV · battery · hybrid' },
-    { id: 'cctv',       icon: '📹', name: 'CCTV',       desc: 'Install · service · NVR' },
-    { id: 'networking', icon: '🌐', name: 'Networking', desc: 'LAN · WiFi · fibre' }
+    { id: 'electrical', icon: 'zap', name: 'Electrical', desc: 'Wiring · inverter · DB' },
+    { id: 'solar',      icon: 'solar-panel', name: 'Solar',      desc: 'PV · battery · hybrid' },
+    { id: 'cctv',       icon: 'cctv', name: 'CCTV',       desc: 'Install · service · NVR' },
+    { id: 'networking', icon: 'router', name: 'Networking', desc: 'LAN · WiFi · fibre' }
   ];
 
   const JOB_TYPES = {

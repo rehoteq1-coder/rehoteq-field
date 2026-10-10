@@ -61,6 +61,11 @@
     return String(s == null ? '' : s)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+  // Must match CONFIG.support.whatsapp[0] in config.js — there is a test.
+  // This page is standalone and does not load config.js: it has to survive
+  // a customer's phone on bad signal with no dependencies.
+  var WA = '2347036302585';
+
   var path = location.pathname.replace(/\/+$/, '');
   var mV = path.match(/\/v\/([A-Za-z0-9]+)$/);
   var mP = path.match(/\/p\/([A-Za-z0-9]+)$/);
@@ -76,7 +81,7 @@
       '<div class="note">Quote this reference to REHOTEQ and we will confirm the ' +
       'job, the technician who attended, and the date — along with the photographs ' +
       'and signatures recorded on site.</div>' +
-      '<a class="btn p" href="https://wa.me/?text=' +
+      '<a class="btn p" href="https://wa.me/' + WA + '?text=' +
         encodeURIComponent('Please confirm REHOTEQ service report ' + mV[1]) +
         '">Check this report on WhatsApp</a>' +
       '<a class="btn g" href="/">Open REHOTEQ Field</a>';
@@ -89,7 +94,7 @@
       '<div class="note">Your installer holds the full record for this system: ' +
       'install date, equipment serial numbers, warranty, and every service visit. ' +
       'Quote the code above when you contact them.</div>' +
-      '<a class="btn p" href="https://wa.me/?text=' +
+      '<a class="btn p" href="https://wa.me/' + WA + '?text=' +
         encodeURIComponent('Hello REHOTEQ — service request for system ' + mP[1]) +
         '">Request a service visit</a>' +
       '<a class="btn g" href="/">Open REHOTEQ Field</a>';

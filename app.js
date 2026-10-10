@@ -57,9 +57,15 @@
     const age = (Date.now() - new Date(S.lastBackup).getTime()) / 864e5;
     return n >= 10 && age > 7;
   }
+  // Plain text, safe to wrap in esc(). For the mark itself use tradeIcon:
+  // an SVG pushed through esc() would arrive as escaped markup.
   function tradeName(id) {
     const t = DATA.TRADES.find(x => x.id === id);
-    return t ? t.icon + ' ' + t.name : id;
+    return t ? t.name : id;
+  }
+  function tradeIcon(id, size) {
+    const t = DATA.TRADES.find(x => x.id === id);
+    return ICON(t ? t.icon : 'wrench', size || 16);
   }
 
   /* ---------------- job lifecycle ---------------------------------- */
@@ -357,26 +363,26 @@
               <div class="js">${esc(j.site.address || 'No location')} · ${dstr(j.startedAt)}</div></div>
           </div>`).join('')}</div>` : ''}
         <div class="meter" onclick="ACT.goPlan()">
-          <div style="font-size:19px">📄</div>
+          <div>${ICON('file-text', 20)}</div>
           <div class="lab"><b>${plan === 'free' ? used + ' of 3 free reports used' : 'Pro — unlimited reports'}</b>
             <div class="bar"><i style="width:${pct}%"></i></div></div>
           <div style="color:#94A3B8">›</div>
         </div>
         ${needsBackup() ? `<div class="warnbox" style="margin-bottom:4px">
-          <div class="wh">⚠️ Back up your work</div>
+          <div class="wh">${ICON('alert-triangle', 14)} Back up your work</div>
           <div class="wt">${S.jobs.length} job cards live only on this phone.
             Settings → <b>Send backup</b> takes ten seconds.</div>
           <button class="btn primary sm" style="margin-top:10px" onclick="ACT.shareBackup()">
-            📤 Back up now</button></div>` : ''}
+            ${ICON('upload', 15)} Back up now</button></div>` : ''}
         <div class="sec">Quick actions</div>
         <div class="grid2">
-          <button class="tile" onclick="ACT.go('library')"><span class="ic">📚</span><span class="t">Troubleshooting</span>
+          <button class="tile" onclick="ACT.go('library')"><span class="ic">${ICON('book-open', 22)}</span><span class="t">Troubleshooting</span>
             <span class="d">${DATA.LIBRARY.length} guides · offline</span></button>
-          <button class="tile" onclick="ACT.go('jobs')"><span class="ic">📋</span><span class="t">My jobs</span>
+          <button class="tile" onclick="ACT.go('jobs')"><span class="ic">${ICON('clipboard-list', 22)}</span><span class="t">My jobs</span>
             <span class="d">${S.jobs.length} job cards</span></button>
-          <button class="tile" onclick="ACT.go('passport')"><span class="ic">🔳</span><span class="t">Solar passport</span>
+          <button class="tile" onclick="ACT.go('passport')"><span class="ic">${ICON('qr-code', 22)}</span><span class="t">Solar passport</span>
             <span class="d">QR · warranty</span></button>
-          <button class="tile" onclick="ACT.go('settings')"><span class="ic">⚙︎</span><span class="t">Settings</span>
+          <button class="tile" onclick="ACT.go('settings')"><span class="ic">${ICON('settings-2', 22)}</span><span class="t">Settings</span>
             <span class="d">Branding · plan</span></button>
         </div>
       </div>`;
@@ -386,25 +392,25 @@
     <div class="pad">
       <div class="sec" style="margin-top:2px">What do you need?</div>
       <div class="grid2">
-        <button class="tile" onclick="ACT.startJob()"><span class="ic">📋</span><span class="t">New job card</span>
+        <button class="tile" onclick="ACT.startJob()"><span class="ic">${ICON('clipboard-list', 22)}</span><span class="t">New job card</span>
           <span class="d">Fault → work → report</span></button>
-        <button class="tile" onclick="ACT.go('library')"><span class="ic">🧰</span><span class="t">Troubleshooting</span>
+        <button class="tile" onclick="ACT.go('library')"><span class="ic">${ICON('wrench', 22)}</span><span class="t">Troubleshooting</span>
           <span class="d">Step-by-step fixes</span></button>
-        <button class="tile" onclick="ACT.go('jobs')"><span class="ic">🔎</span><span class="t">Find a job</span>
+        <button class="tile" onclick="ACT.go('jobs')"><span class="ic">${ICON('search', 22)}</span><span class="t">Find a job</span>
           <span class="d">History &amp; drafts</span></button>
-        <button class="tile" onclick="ACT.go('passport')"><span class="ic">🔳</span><span class="t">Solar passport</span>
+        <button class="tile" onclick="ACT.go('passport')"><span class="ic">${ICON('qr-code', 22)}</span><span class="t">Solar passport</span>
           <span class="d">QR + warranty</span></button>
         <button class="tile locked" onclick="ACT.toast('Equipment ID','Ships in V2 — point the camera, get the model')">
-          <span class="lock">V2</span><span class="ic">🔢</span><span class="t">Identify equipment</span><span class="d">From a photo</span></button>
+          <span class="lock">V2</span><span class="ic">${ICON('scan-line', 22)}</span><span class="t">Identify equipment</span><span class="d">From a photo</span></button>
         <button class="tile locked" onclick="ACT.toast('AI fault diagnosis','Ships in V3, once we have the job corpus to train it on')">
-          <span class="lock">V3</span><span class="ic">🧠</span><span class="t">Diagnose a fault</span><span class="d">AI-ranked causes</span></button>
+          <span class="lock">V3</span><span class="ic">${ICON('brain', 22)}</span><span class="t">Diagnose a fault</span><span class="d">AI-ranked causes</span></button>
         <button class="tile locked" onclick="ACT.toast('Voice copilot','Ships in V4 — speak, get a finished job card')">
-          <span class="lock">V4</span><span class="ic">🎤</span><span class="t">Ask by voice</span><span class="d">Hands-free</span></button>
-        <button class="tile" onclick="ACT.go('settings')"><span class="ic">⚙︎</span><span class="t">Settings</span>
+          <span class="lock">V4</span><span class="ic">${ICON('mic', 22)}</span><span class="t">Ask by voice</span><span class="d">Hands-free</span></button>
+        <button class="tile" onclick="ACT.go('settings')"><span class="ic">${ICON('settings-2', 22)}</span><span class="t">Settings</span>
           <span class="d">Profile · plan</span></button>
       </div>
       <div class="banner b-ok" style="margin-top:14px">
-        <b>Working on ${esc(tradeName(S.trade))}.</b> Checklists and troubleshooting are filtered to this trade.
+        <b>Working on ${tradeIcon(S.trade,15)} ${esc(tradeName(S.trade))}.</b> Checklists and troubleshooting are filtered to this trade.
         Change it on the home screen.
       </div>
     </div>`;
@@ -418,7 +424,7 @@
     });
     return `
       <div class="pad">
-        <div class="searchbox"><span class="si">🔍</span>
+        <div class="searchbox"><span class="si">${ICON('search',16)}</span>
           <input id="iSearch" placeholder="Search faults, codes, equipment…" value="${esc(S.search)}"
             oninput="ACT.search(this.value)"></div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
@@ -434,7 +440,7 @@
               <span>${e.causes.length} causes</span>
             </div>
           </div>`).join('')}
-        ${!list.length ? `<div class="empty"><div class="ei">🔍</div><div class="et">Nothing here yet</div>
+        ${!list.length ? `<div class="empty"><div class="ei">${ICON('search', 26)}</div><div class="et">Nothing here yet</div>
           <div class="ed">This library grows from real REHOTEQ jobs. Add what you see on site.</div></div>` : ''}
       </div>`;
   };
@@ -448,9 +454,9 @@
           <div style="font-size:11px;color:var(--muted);margin-top:5px">
             ${esc(e.cat)} ${e.code ? '· code ' + esc(e.code) : ''} · ${esc(e.source)}
           </div>
-          <button class="btn primary sm" style="margin-top:11px" onclick="ACT.jobFromLib()">📋 Start a job card from this</button>
+          <button class="btn primary sm" style="margin-top:11px" onclick="ACT.jobFromLib()">${ICON('clipboard-list', 15)} Start a job card from this</button>
         </div></div>
-        <div class="warnbox"><div class="wh">⚠️ Safety first</div><div class="wt">${esc(e.safety)}</div></div>
+        <div class="warnbox"><div class="wh">${ICON('alert-triangle', 14)} Safety first</div><div class="wt">${esc(e.safety)}</div></div>
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Possible issue <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#0E7C5A">${e.causes.length} found</span></div>
           <div class="cb">
@@ -475,8 +481,8 @@
         </div>
         <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.6;padding-bottom:10px">
           Was this helpful?
-          <button class="chip" onclick="ACT.toast('Logged','Ratings like this become the V3 training set')">👍 Yes</button>
-          <button class="chip" onclick="ACT.toast('Flagged for review','A human reviews every correction')">👎 No</button>
+          <button class="chip" onclick="ACT.toast('Logged','Ratings like this become the V3 training set')">${ICON('thumbs-up', 13)} Yes</button>
+          <button class="chip" onclick="ACT.toast('Flagged for review','A human reviews every correction')">${ICON('thumbs-down', 13)} No</button>
         </div>
       </div>`;
   };
@@ -495,11 +501,11 @@
           <div class="fieldwrap">
             <input id="fAddr" placeholder="14 Adeyemi St, Okitipupa" value="${esc(j.site.address)}"
               oninput="ACT.set('site.address',this.value)">
-            <button class="mic" onclick="ACT.gps()" title="Use my location">📍</button>
+            <button class="mic" onclick="ACT.gps()" title="Use my location">${ICON('map-pin', 16)}</button>
           </div>
           <div class="hintline" id="gpsLine">${j.site.lat !== null && j.site.lat !== undefined
-            ? '<b>📍 GPS captured</b> · ' + j.site.lat.toFixed(4) + ', ' + j.site.lng.toFixed(4)
-            : 'Tap 📍 to stamp the location'}</div>
+            ? '<b>' + ICON('map-pin',12) + ' GPS captured</b> · ' + j.site.lat.toFixed(4) + ', ' + j.site.lng.toFixed(4)
+            : 'Tap ' + ICON('map-pin',12) + ' to stamp the location'}</div>
         </div>
         <div class="field"><label class="fl">Job type</label>
           <select onchange="ACT.set('jobType',this.value)">
@@ -537,15 +543,15 @@
         <div class="fieldwrap">
           <textarea ${locked ? 'disabled' : ''} placeholder="${esc(ph)}"
             oninput="ACT.set('${key}',this.value)">${esc(j[key] || '')}</textarea>
-          <button class="mic" onclick="ACT.voice('${key}',this)" title="Dictate">🎤</button>
+          <button class="mic" onclick="ACT.voice('${key}',this)" title="Dictate">${ICON('mic', 16)}</button>
         </div></div>`;
     return `
       <div class="pad">
-        ${locked ? `<div class="banner b-ok">🔒 This job card is <b>locked</b>. Both parties signed — it is now evidence and cannot be edited.</div>` : ''}
+        ${locked ? `<div class="banner b-ok">${ICON('lock', 15)} This job card is <b>locked</b>. Both parties signed — it is now evidence and cannot be edited.</div>` : ''}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-          <span class="chip">${esc(tradeName(j.trade))}</span>
+          <span class="chip">${tradeIcon(j.trade,13)}<span>${esc(tradeName(j.trade))}</span></span>
           <span class="chip grey">${esc(j.ref)}</span>
-          ${!S.online ? '<span class="chip grey">⏳ Offline — will sync</span>' : ''}
+          ${!S.online ? '<span class="chip grey">' + ICON('cloud-off',12) + ' Offline — will sync</span>' : ''}
         </div>
         ${text('fault', '1 · Fault reported', "What the customer said, in their words")}
         ${text('diagnosis', '2 · Diagnosis', 'What you found')}
@@ -560,7 +566,7 @@
                   oninput="ACT.setMat(${i},'desc',this.value)" ${locked ? 'disabled' : ''}>
                 <input style="width:62px" type="number" value="${m.qty}" oninput="ACT.setMat(${i},'qty',this.value)" ${locked ? 'disabled' : ''}>
                 <input style="width:96px" type="number" value="${m.unitPrice}" oninput="ACT.setMat(${i},'unitPrice',this.value)" ${locked ? 'disabled' : ''}>
-                ${locked ? '' : `<button class="iconbtn" onclick="ACT.delMat(${i})">✕</button>`}
+                ${locked ? '' : `<button class="iconbtn" onclick="ACT.delMat(${i})">${ICON('x', 14)}</button>`}
               </div>`).join('') : '<div style="font-size:12px;color:#94A3B8">No materials yet</div>'}
             <div class="field" style="margin:8px 0 0"><label class="fl">Labour (₦)</label>
               <input type="number" value="${j.labour || ''}" placeholder="25000"
@@ -569,8 +575,8 @@
         </div>
         ${text('recommendation', '5 · Recommendation', 'What should happen next — this is where the next job comes from')}
         <button class="btn ghost sm" onclick="ACT.go('checklist')">
-          ✅ Checklist ${j.checklist ? '· ' + j.checklist.items.filter(i => i.passed).length + '/' + j.checklist.items.length : ''}</button>
-        <button class="btn primary sm" style="margin-top:10px" onclick="ACT.go('photos')">📸 Job evidence</button>
+          ${ICON('list-checks', 15)} Checklist ${j.checklist ? '· ' + j.checklist.items.filter(i => i.passed).length + '/' + j.checklist.items.length : ''}</button>
+        <button class="btn primary sm" style="margin-top:10px" onclick="ACT.go('photos')">${ICON('camera', 15)} Job evidence</button>
       </div>`;
   };
 
@@ -580,7 +586,7 @@
       const key = j.trade + '|' + j.jobType;
       const tpl = DATA.CHECKLISTS[key];
       if (!tpl) {
-        return `<div class="pad"><div class="empty"><div class="ei">📋</div>
+        return `<div class="pad"><div class="empty"><div class="ei">${ICON('clipboard-list', 26)}</div>
           <div class="et">No checklist for this job type yet</div>
           <div class="ed">We have checklists for ${Object.keys(DATA.CHECKLISTS).length} job types.
           This one is on the list — write it from your next real job.</div></div>
@@ -596,12 +602,12 @@
         <div class="card">
           ${items.map((it, i) => `
             <div class="ck ${it.passed ? 'done' : ''}" onclick="${j.lockedAt ? '' : 'ACT.tick(' + i + ')'}">
-              <div class="box ${it.passed ? 'on' : ''}">${it.passed ? '✓' : ''}</div>
+              <div class="box ${it.passed ? 'on' : ''}">${it.passed ? ICON('check',13) : ''}</div>
               <div style="flex:1">
                 <div class="ct">${esc(it.l)}</div>
                 ${it.h ? `<div class="cd">${esc(it.h)}</div>` : ''}
-                ${it.critical ? '<div class="cd" style="color:#DC2626;font-weight:700;margin-top:3px">⚠ Critical — blocks completion</div>' : ''}
-                ${it.photo ? '<div class="cam">📷 Photo required</div>' : ''}
+                ${it.critical ? '<div class="cd" style="color:#DC2626;font-weight:700;margin-top:3px">' + ICON('alert-triangle',12) + ' Critical — blocks completion</div>' : ''}
+                ${it.photo ? '<div class="cam">' + ICON('camera',12) + ' Photo required</div>' : ''}
               </div>
             </div>`).join('')}
         </div>
@@ -616,8 +622,8 @@
       const p = (by[stage] || [])[0];
       if (p) {
         return `<div class="ph"><img src="${p.url}" alt="${stage}">
-          <span class="stag">${label}</span><span class="ok">✓</span>
-          ${j.lockedAt ? '' : `<button class="x" onclick="ACT.delPhoto('${p.id}')">✕</button>`}</div>`;
+          <span class="stag">${label}</span><span class="ok">${ICON('check', 13)}</span>
+          ${j.lockedAt ? '' : `<button class="x" onclick="ACT.delPhoto('${p.id}')">${ICON('x', 14)}</button>`}</div>`;
       }
       return `<button class="ph empty" onclick="${j.lockedAt ? '' : 'ACT.pick(\'' + stage + '\')'}">
         <span style="font-size:22px">${icon}</span><span>Add ${label}</span></button>`;
@@ -627,10 +633,10 @@
         <div class="banner">Time, GPS and your name are <b>burned into every photo</b>.
         A screenshot of metadata is not evidence — a stamp on the image survives being shared.</div>
         <div class="photogrid">
-          ${cell('before', 'BEFORE', '📷')}
-          ${cell('during', 'DURING', '🛠')}
-          ${cell('after', 'AFTER', '⚡')}
-          ${cell('serial', 'SERIAL', '🔢')}
+          ${cell('before', 'BEFORE', ICON('camera',22))}
+          ${cell('during', 'DURING', ICON('hammer',22))}
+          ${cell('after', 'AFTER', ICON('zap',22))}
+          ${cell('serial', 'SERIAL', ICON('scan-line',22))}
         </div>
         <div class="card" style="margin-top:14px">
           <div class="ch">Why this matters</div>
@@ -655,12 +661,12 @@
             <div class="field"><label class="fl">Name</label>
               <input id="sigCustName" placeholder="A. Adewale" value="${esc(j.customer.name)}"></div>
             <div class="sigpad" id="padC"><canvas id="cvC"></canvas>
-              <div class="ph2" id="phC">✍️ Customer signs here</div></div>
+              <div class="ph2" id="phC">${ICON('pen-tool', 15)} Customer signs here</div></div>
             <div class="btnrow">
               <button class="btn ghost sm" style="flex:1" onclick="ACT.clearSig('customer')">Clear</button>
               <button class="btn dark sm" style="flex:1" onclick="ACT.saveSig('customer')">Save signature</button>
             </div>
-            ${j.signatures.customer ? `<div class="hintline"><b>✔ Signed</b> ${dstr(j.signatures.customer.at)} ${tstr(j.signatures.customer.at)}</div>` : ''}
+            ${j.signatures.customer ? `<div class="hintline"><b>${ICON('check', 13)} Signed</b> ${dstr(j.signatures.customer.at)} ${tstr(j.signatures.customer.at)}</div>` : ''}
           </div>
         </div>
         <div class="card" style="margin-bottom:12px">
@@ -670,15 +676,15 @@
               <input id="sigTechName" placeholder="${esc((S.user && S.user.name) || 'Your name')}"
                 value="${esc((j.signatures.technician && j.signatures.technician.name) || (S.user && S.user.name) || '')}"></div>
             <div class="sigpad" id="padT"><canvas id="cvT"></canvas>
-              <div class="ph2" id="phT">✍️ You sign here</div></div>
+              <div class="ph2" id="phT">${ICON('pen-tool', 15)} You sign here</div></div>
             <div class="btnrow">
               <button class="btn ghost sm" style="flex:1" onclick="ACT.clearSig('technician')">Clear</button>
               <button class="btn dark sm" style="flex:1" onclick="ACT.saveSig('technician')">Save signature</button>
             </div>
-            ${j.signatures.technician ? `<div class="hintline"><b>✔ Signed</b> ${dstr(j.signatures.technician.at)} ${tstr(j.signatures.technician.at)}</div>` : ''}
+            ${j.signatures.technician ? `<div class="hintline"><b>${ICON('check', 13)} Signed</b> ${dstr(j.signatures.technician.at)} ${tstr(j.signatures.technician.at)}</div>` : ''}
           </div>
         </div>
-        <div class="banner b-ok">🔒 Once both signatures are saved the job card <b>locks</b>.
+        <div class="banner b-ok">${ICON('lock', 15)} Once both signatures are saved the job card <b>locks</b>.
         That is what turns a note into evidence.</div>
         <button class="btn primary" onclick="ACT.finish()">Generate report ›</button>
       </div>`;
@@ -694,7 +700,7 @@
     const sigBox = (role, label) => {
       const s = j.signatures && j.signatures[role];
       return `<div class="sigbox">
-        <div class="rl" style="color:${s ? '#0E7C5A' : '#94A3B8'}">${s ? '✔' : '—'} ${label}</div>
+        <div class="rl" style="color:${s ? '#0E7C5A' : '#94A3B8'}">${s ? ICON('check',13) : '—'} ${label}</div>
         ${s ? `<img src="${s.dataUrl}" alt="">` : '<div style="height:34px"></div>'}
         <div class="nm">${esc(s ? s.name : 'Not signed')}</div></div>`;
     };
@@ -735,14 +741,14 @@
             ${strip[0].lat !== null && strip[0].lat !== undefined ? strip[0].lat.toFixed(4) + ', ' + strip[0].lng.toFixed(4) + ' · ' : ''}
             ${esc((S.user && S.user.name) || '')}</div>` : ''}
         <div class="sigs">${sigBox('customer', 'Customer')}${sigBox('technician', 'Technician')}</div>
-        <div class="verify">🔎 Record reference · ${esc(CONFIG.domain)}/v/<b>${esc(CONFIG.slugify(j.ref))}</b>
+        <div class="verify">${ICON('search', 12)} Record reference · ${esc(CONFIG.domain)}/v/<b>${esc(CONFIG.slugify(j.ref))}</b>
           ${j.hashes && j.hashes.length ? `<br><span style="font-size:9px;opacity:.8" class="mono">${j.hashes.length} photo digest${j.hashes.length === 1 ? '' : 's'} recorded on this job card</span>` : ''}</div>
         <div class="disclaim">This report records work performed as described. It is not a certificate of
           regulatory compliance unless issued by a licensed contractor.</div>
       </div>
       <div class="actionbar">
         <button class="btn ghost" style="flex:0 0 30%" onclick="ACT.go('jobcard')">Edit</button>
-        <button class="btn primary" style="flex:1" onclick="ACT.pdf()">📄 Generate PDF</button>
+        <button class="btn primary" style="flex:1" onclick="ACT.pdf()">${ICON('file-text', 16)} Generate PDF</button>
       </div>`;
   };
 
@@ -779,7 +785,7 @@
                   oninput="ACT.setQuoteItem(${i},'desc',this.value)">
                 <input style="width:56px" type="number" value="${it.qty}" oninput="ACT.setQuoteItem(${i},'qty',this.value)">
                 <input style="width:92px" type="number" value="${it.unitPrice}" oninput="ACT.setQuoteItem(${i},'unitPrice',this.value)">
-                <button class="iconbtn" onclick="ACT.delQuoteItem(${i})">✕</button>
+                <button class="iconbtn" onclick="ACT.delQuoteItem(${i})">${ICON('x', 14)}</button>
               </div>`).join('')}
             ${!q.items.length ? '<div style="font-size:12px;color:#94A3B8">No line items yet</div>' : ''}
             <div class="field" style="margin-top:8px"><label class="fl">Labour (₦)</label>
@@ -804,7 +810,7 @@
               oninput="ACT.setQuote('terms',this.value)">${esc(q.terms)}</textarea></div>
           </div>
         </div>
-        <button class="btn primary" onclick="ACT.quotePdf()">📄 Generate quotation PDF</button>
+        <button class="btn primary" onclick="ACT.quotePdf()">${ICON('file-text', 16)} Generate quotation PDF</button>
       </div>`;
   };
 
@@ -818,9 +824,9 @@
             <div class="jt">${esc(j.jobType || 'Job card')}${j.customer.name ? ' — ' + esc(j.customer.name) : ''}</div>
             <div class="js">${esc(j.ref)} · ${dstr(j.startedAt)} · ${esc(tradeName(j.trade))}</div>
             <div class="js" style="margin-top:2px">
-              ${j.lockedAt ? '🔒 Locked as evidence' : j.status === 'sent' ? '📤 Sent' : '📝 Draft'}</div>
+              ${j.lockedAt ? ICON('lock',12) + ' Locked as evidence' : j.status === 'sent' ? ICON('upload',12) + ' Sent' : ICON('pencil-line',12) + ' Draft'}</div>
           </div></div></div>`).join('')
-        : `<div class="empty"><div class="ei">📋</div><div class="et">No jobs yet</div>
+        : `<div class="empty"><div class="ei">${ICON('clipboard-list', 26)}</div><div class="et">No jobs yet</div>
            <div class="ed">Start your first job card. It takes about two minutes and ends with a
            PDF you can send on WhatsApp.</div></div>`}
     </div>`;
@@ -832,40 +838,40 @@
       <div class="pad">
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Business profile</div>
-          <div class="srow"><span class="si">🏢</span><span class="sl">Business name</span>
+          <div class="srow"><span class="si">${ICON('building-2', 17)}</span><span class="sl">Business name</span>
             <span class="sv">${esc(u.company || 'Not set')}</span></div>
-          <div class="srow"><span class="si">👤</span><span class="sl">Your name</span><span class="sv">${esc(u.name || '')}</span></div>
-          <div class="srow"><span class="si">📞</span><span class="sl">Phone</span><span class="sv">${esc(u.phone || 'Not set')}</span></div>
-          <div class="srow"><span class="si">📍</span><span class="sl">Business address</span>
+          <div class="srow"><span class="si">${ICON('user', 17)}</span><span class="sl">Your name</span><span class="sv">${esc(u.name || '')}</span></div>
+          <div class="srow"><span class="si">${ICON('phone', 17)}</span><span class="sl">Phone</span><span class="sv">${esc(u.phone || 'Not set')}</span></div>
+          <div class="srow"><span class="si">${ICON('map-pin', 17)}</span><span class="sl">Business address</span>
             <span class="sv">${esc(u.address || 'Not set')}</span></div>
-          <div class="srow"><span class="si">✉️</span><span class="sl">Email</span>
+          <div class="srow"><span class="si">${ICON('mail', 17)}</span><span class="sl">Email</span>
             <span class="sv">${esc(u.email || 'Not set')}</span></div>
-          <div class="srow"><span class="si">🏦</span><span class="sl">Bank details</span>
+          <div class="srow"><span class="si">${ICON('landmark', 17)}</span><span class="sl">Bank details</span>
             <span class="sv">${esc(u.bank || 'Not set')}</span></div>
-          <div class="srow"><span class="si">🖼</span><span class="sl">Logo</span>
+          <div class="srow"><span class="si">${ICON('image', 17)}</span><span class="sl">Logo</span>
             <span class="sv">${u.logo && u.logo.dataUrl
               ? '<img src="' + esc(u.logo.dataUrl) + '" alt="" style="width:28px;height:28px;' +
                 'object-fit:contain;background:#F1F5F9;border-radius:7px;vertical-align:middle">'
               : 'Not set'}</span></div>
           <div class="srow" style="cursor:pointer" onclick="ACT.editProfile()">
-            <span class="si">✏️</span><span class="sl">Edit profile</span><span style="color:#94A3B8">›</span></div>
+            <span class="si">${ICON('pencil', 17)}</span><span class="sl">Edit profile</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Subscription</div>
-          <div class="srow"><span class="si">⭐</span>
+          <div class="srow"><span class="si">${ICON('star', 17)}</span>
             <span class="sl">Plan<br><span style="font-size:11px;color:var(--muted);font-weight:500">
               ${plan === 'free' ? 'Free · 3 reports/month' : 'Pro · unlimited'}</span></span>
             <button class="switch ${plan !== 'free' ? 'on' : ''}" onclick="ACT.togglePlan(this)"></button></div>
-          <div class="srow" onclick="ACT.goPlan()"><span class="si">💳</span>
+          <div class="srow" onclick="ACT.goPlan()"><span class="si">${ICON('credit-card', 17)}</span>
             <span class="sl">Plans &amp; pricing</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Field settings</div>
-          <div class="srow"><span class="si">📶</span><span class="sl">Data saver</span>
+          <div class="srow"><span class="si">${ICON('signal', 17)}</span><span class="sl">Data saver</span>
             <span class="sv">Photos ≤ 350 KB</span></div>
-          <div class="srow"><span class="si">☁️</span><span class="sl">Offline</span>
+          <div class="srow"><span class="si">${ICON('cloud', 17)}</span><span class="sl">Offline</span>
             <span class="sv">${S.online ? '<span class="online-dot"></span>Online' : '<span class="offline-dot"></span>Offline — work is saved'}</span></div>
-          <div class="srow" onclick="ACT.syncInfo()"><span class="si">🔄</span><span class="sl">Sync queue</span>
+          <div class="srow" onclick="ACT.syncInfo()"><span class="si">${ICON('refresh-cw', 17)}</span><span class="sl">Sync queue</span>
             <span class="sv" id="queueCount">…</span></div>
         </div>
         <div class="card" style="margin-bottom:12px">
@@ -875,30 +881,37 @@
                 S.lastBackup ? 'Last: ' + dstr(S.lastBackup) : 'Never backed up'}</span></div>
           ${!S.lastBackup ? `<div class="cb" style="padding-top:0">
             <div class="warnbox" style="margin:0 0 10px">
-              <div class="wh">⚠️ Your data is only on this phone</div>
+              <div class="wh">${ICON('alert-triangle', 14)} Your data is only on this phone</div>
               <div class="wt">If this phone is lost, reset or the browser data is cleared,
               every job card and photo goes with it. Back up now — it takes ten seconds.</div>
             </div></div>` : `<div class="cb" style="padding-top:2px;padding-bottom:6px;font-size:11.5px;color:var(--muted);line-height:1.55">
               A backup file is only safe somewhere other than this phone.
               Email it to yourself or put it in Drive.</div>`}
-          <div class="srow" onclick="ACT.shareBackup()"><span class="si">📤</span>
+          <div class="srow" onclick="ACT.shareBackup()"><span class="si">${ICON('upload', 17)}</span>
             <span class="sl">Send backup off this phone<br>
               <span style="font-size:11px;color:var(--muted);font-weight:500">Jobs + photos · email or Drive</span></span>
             <span style="color:#0E7C5A;font-weight:700">Best</span></div>
-          <div class="srow" onclick="ACT.exportAll(true)"><span class="si">💾</span>
+          <div class="srow" onclick="ACT.exportAll(true)"><span class="si">${ICON('save', 17)}</span>
             <span class="sl">Download backup (with photos)</span><span style="color:#94A3B8">›</span></div>
-          <div class="srow" onclick="ACT.exportAll(false)"><span class="si">📄</span>
+          <div class="srow" onclick="ACT.exportAll(false)"><span class="si">${ICON('file-text', 17)}</span>
             <span class="sl">Download backup (text only)<br>
               <span style="font-size:11px;color:var(--muted);font-weight:500">Much smaller · no photos</span></span>
             <span style="color:#94A3B8">›</span></div>
-          <div class="srow" onclick="ACT.importBackup()"><span class="si">📥</span>
+          <div class="srow" onclick="ACT.importBackup()"><span class="si">${ICON('download', 17)}</span>
             <span class="sl">Restore from backup</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="card" style="margin-bottom:12px">
+          <div class="ch">Support</div>
+          <div class="srow" onclick="ACT.contact()"><span class="si">${ICON('message-circle', 17)}</span>
+            <span class="sl">Message REHOTEQ on WhatsApp<br>
+              <span style="font-size:11px;color:var(--muted);font-weight:500">${esc(CONFIG.support.whatsappLabel)}</span></span>
+            <span style="color:#94A3B8">›</span></div>
+        </div>
+        <div class="card" style="margin-bottom:12px">
           <div class="ch">Data</div>
-          <div class="srow" onclick="ACT.loadDemo()"><span class="si">🎬</span>
+          <div class="srow" onclick="ACT.loadDemo()"><span class="si">${ICON('play', 17)}</span>
             <span class="sl">Load a demo job</span><span class="sv">Try the PDF in one tap</span></div>
-          <div class="srow" onclick="ACT.wipe()"><span class="si">🗑</span>
+          <div class="srow" onclick="ACT.wipe()"><span class="si">${ICON('trash-2', 17)}</span>
             <span class="sl" style="color:#DC2626">Delete everything on this device</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.7">
@@ -930,7 +943,7 @@
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,.12);
               padding:10px 12px;border-radius:11px;margin-top:13px;font-size:11.5px">
-              <span>🛡 Warranty · <b>${days === null ? '—' : days > 0 ? 'active' : 'expired'}</b></span>
+              <span>${ICON('shield-check', 13)} Warranty · <b>${days === null ? '—' : days > 0 ? 'active' : 'expired'}</b></span>
               <span><b>${days === null ? '—' : Math.max(0, days) + ' days'}</b> left</span></div>
           </div>
           <div class="card" style="margin-bottom:12px">
@@ -973,7 +986,7 @@
               <div class="js mono">${esc(e.serial)}</div>
               <div class="js">${esc(e.capacity || '')} · ${esc(e.model || '')}</div></div>
             <div style="color:#94A3B8">›</div></div></div>`).join('')
-          : `<div class="empty"><div class="ei">🔳</div><div class="et">No systems yet</div>
+          : `<div class="empty"><div class="ei">${ICON('qr-code', 26)}</div><div class="et">No systems yet</div>
              <div class="ed">Add a serial number on a job card and it will appear here.</div></div>`}
       </div>`;
   };
@@ -981,11 +994,32 @@
   /* ---------------- paywall ------------------------------------------ */
 
   // The paywall must never offer a button that goes nowhere — that is
-  // exactly how 25 dead buttons shipped in v1.0.0. Until both payment
-  // links are configured, it offers the WhatsApp route instead.
-  function payReady() {
+  // exactly how 25 dead buttons shipped in v1.0.0. A plan with no payment
+  // link gets no button; if none of them have one, it offers WhatsApp.
+  function payLink(kind) {
     const p = (window.CONFIG && CONFIG.payments) || {};
-    return !!(p.proMonthlyUrl && p.proAnnualUrl);
+    if (kind === 'annual') return p.proAnnualUrl || '';
+    if (kind === 'business') return p.businessUrl || '';
+    return p.proMonthlyUrl || '';
+  }
+
+  function payBtns() {
+    const out = [];
+    if (payLink('monthly')) {
+      out.push('<button class="btn primary" onclick="ACT.payMonthly()">Pay ₦3,000 · one month</button>');
+    }
+    if (payLink('annual')) {
+      out.push('<button class="' + (out.length ? 'btn ghost sm" style="margin-top:9px' : 'btn primary') +
+        '" onclick="ACT.payAnnual()">₦30,000 / year — 2 months free</button>');
+    }
+    if (payLink('business')) {
+      out.push('<button class="btn ghost sm" style="margin-top:9px" onclick="ACT.payBusiness()">' +
+        'Business · ₦15,000 / month</button>');
+    }
+    if (!out.length) {
+      out.push('<button class="btn primary" onclick="ACT.subscribe()">Subscribe — ₦3,000 / month</button>');
+    }
+    return out.join('\n        ');
   }
 
   function openPayment(url, label) {
@@ -1000,7 +1034,7 @@
     pw.innerHTML = `
       <div class="pwsheet">
         <div class="center" style="margin-bottom:13px">
-          <div style="font-size:32px;margin-bottom:4px">🔒</div>
+          <div style="margin-bottom:4px">${ICON('lock', 32)}</div>
           <div style="font-size:16px;font-weight:750;letter-spacing:-.01em">You&rsquo;ve used all 3 free reports</div>
           <div style="font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5">
             Your report is ready. One extra job a year pays for this.</div>
@@ -1009,19 +1043,14 @@
           <div class="badge">MOST POPULAR</div>
           <div class="pr"><span class="amt">₦3,000</span><span class="per">/ month</span></div>
           <div class="yr">or ₦30,000 / year — 2 months free</div>
-          <div class="feat"><span class="tk">✓</span>Unlimited job cards &amp; PDF reports</div>
-          <div class="feat"><span class="tk">✓</span>No watermark — your own logo</div>
-          <div class="feat"><span class="tk">✓</span>Quotations that get accepted</div>
-          <div class="feat"><span class="tk">✓</span>Evidence packs, GPS, signatures</div>
-          <div class="feat"><span class="tk">✓</span>Offline mode, syncs later</div>
-          <div class="feat"><span class="tk">✓</span>All 4 trades + full checklists</div>
+          <div class="feat"><span class="tk">${ICON('check', 12)}</span>Unlimited job cards &amp; PDF reports</div>
+          <div class="feat"><span class="tk">${ICON('check', 12)}</span>No watermark — your own logo</div>
+          <div class="feat"><span class="tk">${ICON('check', 12)}</span>Quotations that get accepted</div>
+          <div class="feat"><span class="tk">${ICON('check', 12)}</span>Evidence packs, GPS, signatures</div>
+          <div class="feat"><span class="tk">${ICON('check', 12)}</span>Offline mode, syncs later</div>
+          <div class="feat"><span class="tk">${ICON('check', 12)}</span>All 4 trades + full checklists</div>
         </div>
-        ${payReady() ? `
-          <button class="btn primary" onclick="ACT.payMonthly()">Pay ₦3,000 · one month</button>
-          <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.payAnnual()">
-            ₦30,000 / year — 2 months free</button>`
-        : `
-          <button class="btn primary" onclick="ACT.subscribe()">Subscribe — ₦3,000 / month</button>`}
+        ${payBtns()}
         <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.closePaywall()">Maybe later</button>
         <div style="background:#fff;border:1px solid var(--line);border-radius:13px;padding:13px;margin-top:14px">
           <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:7px">Also available</div>
@@ -1031,9 +1060,10 @@
           </div>
         </div>
         <div class="center" style="font-size:10px;color:#94A3B8;margin-top:12px;line-height:1.6">
-          ${payReady()
+          ${payLink('monthly')
             ? 'Payment opens in Flutterwave. Already paid? Switch Pro on in Settings → Subscription.'
-            : 'Payments open soon — subscribe on WhatsApp and we will switch Pro on for you.'}
+            : 'Payments open soon — message us and we will switch Pro on for you.'}
+          <br>WhatsApp ${esc(CONFIG.support.whatsappLabel)}
         </div>
       </div>`;
     pw.classList.add('show');
@@ -1066,8 +1096,8 @@
       bar = `<div class="appbar"><div class="row">
         <div class="brand"><div class="sq">R</div><b>REHOTEQ <em>Field</em></b></div>
         <div style="display:flex;gap:7px">
-          <button class="iconbtn" onclick="ACT.go('jobs')">🔎</button>
-          <button class="iconbtn" onclick="ACT.go('settings')">⚙︎</button>
+          <button class="iconbtn" onclick="ACT.go('jobs')">${ICON('search', 18)}</button>
+          <button class="iconbtn" onclick="ACT.go('settings')">${ICON('settings-2', 18)}</button>
         </div></div>
         <div style="font-size:12px;color:var(--muted);margin-top:7px">
           Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'},
@@ -1079,10 +1109,10 @@
     const body = v === 'report' ? V.report() : `<div class="scroll">${(V[v] || V.home)()}</div>`;
     app().innerHTML = bar + body +
       (hasTab ? `<div class="tabbar">
-        <button class="tab ${v === 'home' ? 'on' : ''}" onclick="ACT.go('home')"><span class="ti">🏠</span>Home</button>
-        <button class="tab ${v === 'jobs' ? 'on' : ''}" onclick="ACT.go('jobs')"><span class="ti">📋</span>Jobs</button>
-        <button class="tab" onclick="ACT.go('library')"><span class="ti">🧰</span>Guides</button>
-        <button class="tab ${v === 'settings' ? 'on' : ''}" onclick="ACT.go('settings')"><span class="ti">⚙︎</span>Settings</button>
+        <button class="tab ${v === 'home' ? 'on' : ''}" onclick="ACT.go('home')"><span class="ti">${ICON('house', 20)}</span>Home</button>
+        <button class="tab ${v === 'jobs' ? 'on' : ''}" onclick="ACT.go('jobs')"><span class="ti">${ICON('clipboard-list', 20)}</span>Jobs</button>
+        <button class="tab" onclick="ACT.go('library')"><span class="ti">${ICON('wrench', 20)}</span>Guides</button>
+        <button class="tab ${v === 'settings' ? 'on' : ''}" onclick="ACT.go('settings')"><span class="ti">${ICON('settings-2', 20)}</span>Settings</button>
       </div>` : '');
 
     postRender(v);
@@ -1223,7 +1253,7 @@
         saveJob();
         const el = $('fAddr'); if (el) el.value = S.job.site.address;
         const gl = $('gpsLine');
-        if (gl) gl.innerHTML = '<b>📍 GPS captured</b> · ' + p.lat.toFixed(4) + ', ' + p.lng.toFixed(4) + ' · ±' + Math.round(p.acc) + ' m';
+        if (gl) gl.innerHTML = '<b>' + ICON('map-pin',12) + ' GPS captured</b> · ' + p.lat.toFixed(4) + ', ' + p.lng.toFixed(4) + ' · ±' + Math.round(p.acc) + ' m';
         toast('Location captured', 'This is stamped onto every photo and the report');
       });
     },
@@ -1369,14 +1399,19 @@
     goPlan() { showPaywall(); },
     closePaywall() { $('paywall').classList.remove('show'); },
 
-    payMonthly() { openPayment(CONFIG.payments.proMonthlyUrl, 'Flutterwave'); },
-    payAnnual() { openPayment(CONFIG.payments.proAnnualUrl, 'Flutterwave'); },
+    payMonthly() { openPayment(payLink('monthly'), 'Flutterwave'); },
+    payAnnual() { openPayment(payLink('annual'), 'Flutterwave'); },
+    payBusiness() { openPayment(payLink('business'), 'Flutterwave'); },
 
     subscribe() {
       const msg = 'Hello REHOTEQ — I would like to subscribe to REHOTEQ Field Pro ' +
         '(₦3,000 / month). My name is ' + ((S.user && S.user.name) || '') + '.';
-      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+      window.open(CONFIG.waUrl(msg), '_blank');
       toast('WhatsApp opened', 'Send the message and we will switch Pro on for you');
+    },
+
+    contact() {
+      window.open(CONFIG.waUrl('Hello REHOTEQ — '), '_blank');
     },
     togglePlan(el) {
       S.user.plan = S.user.plan === 'free' ? 'pro' : 'free';
@@ -1608,7 +1643,7 @@
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: filename, text: text });
-        toast('Sent ✔', 'Choose WhatsApp from the share sheet');
+        toast('Sent', 'Choose WhatsApp from the share sheet');
         return;
       } catch (e) { /* user cancelled — fall through */ }
     }
@@ -1618,21 +1653,29 @@
   function showShareSheet(blob, filename, text) {
     const url = URL.createObjectURL(blob);
     const sheet = $('paywall');
-    const waUrl = 'https://wa.me/?text=' + encodeURIComponent(text);
+    // This PDF is going to the customer, so aim at their number when the
+    // job card has one. With no number the link still opens WhatsApp and
+    // the technician picks the chat — on their own phone that is a normal
+    // action, unlike the passport page, where a member of the public must
+    // land on REHOTEQ's line rather than guess who to message.
+    const num = (S.job && S.job.customer) ? CONFIG.waNumber(S.job.customer.phone) : '';
+    const waUrl = num
+      ? 'https://wa.me/' + num + '?text=' + encodeURIComponent(text)
+      : 'https://wa.me/?text=' + encodeURIComponent(text);
     sheet.innerHTML = `
       <div class="pwsheet">
         <div class="center" style="margin-bottom:14px">
-          <div style="font-size:34px;margin-bottom:5px">📄</div>
+          <div style="margin-bottom:5px">${ICON('file-text', 34)}</div>
           <div style="font-size:15.5px;font-weight:750">${esc(filename)}</div>
           <div style="font-size:11.5px;color:var(--muted);margin-top:4px">
             ${(blob.size / 1024).toFixed(0)} KB · ready to send</div>
         </div>
-        <button class="btn wa" onclick="window.open('${waUrl}','_blank')">💬 Send to WhatsApp</button>
+        <button class="btn wa" onclick="window.open('${waUrl}','_blank')">${ICON('message-circle', 16)} Send to WhatsApp</button>
         <div class="grid2" style="margin-top:9px">
-          <button class="btn ghost sm" onclick="ACT.dl('${url}','${filename}')">⬇︎ Save PDF</button>
-          <button class="btn ghost sm" onclick="window.open('${url}','_blank')">👁 Preview</button>
+          <button class="btn ghost sm" onclick="ACT.dl('${url}','${filename}')">${ICON('download', 15)} Save PDF</button>
+          <button class="btn ghost sm" onclick="window.open('${url}','_blank')">${ICON('eye', 15)} Preview</button>
         </div>
-        <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.quote()">🧾 Also send a quotation</button>
+        <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.quote()">${ICON('receipt', 15)} Also send a quotation</button>
         <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.closePaywall()">Done</button>
         <div class="center" style="font-size:10.5px;color:#94A3B8;margin-top:12px;line-height:1.6">
           WhatsApp opens with your message ready — attach the PDF from the paperclip.
@@ -1682,7 +1725,7 @@
     console.error('boot failed', err);
     app().innerHTML =
       '<div class="pad" style="padding-top:56px">' +
-      '<div class="empty"><div class="ei">⚠️</div>' +
+      '<div class="empty">' + ICON('alert-triangle',26) + '' +
       '<div class="et">REHOTEQ Field could not start</div>' +
       '<div class="ed">Your job cards are still on this device. Reload first; ' +
       'if that fails, use Reset to clear local data and restore your last backup.</div></div>' +
