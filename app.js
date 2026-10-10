@@ -586,8 +586,9 @@
           <div class="ch">Why this matters</div>
           <div class="cb" style="font-size:12px;line-height:1.6;color:#334155">
             When a customer says <i>"you didn't do the work"</i>, this is the answer:
-            four photographs, time-stamped, location-stamped, hash-chained, with both signatures
-            on the same page. Anyone can verify it at the link on the report.
+            four photographs with the time, the location and your name <b>burned into
+            the image</b>, plus both signatures on the same page. Signing locks the job
+            card — after that the app will not let anyone edit it.
           </div>
         </div>
         <button class="btn primary" onclick="ACT.go('signoff')">Get sign-off ›</button>
@@ -684,8 +685,8 @@
             ${strip[0].lat !== null && strip[0].lat !== undefined ? strip[0].lat.toFixed(4) + ', ' + strip[0].lng.toFixed(4) + ' · ' : ''}
             ${esc((S.user && S.user.name) || '')}</div>` : ''}
         <div class="sigs">${sigBox('customer', 'Customer')}${sigBox('technician', 'Technician')}</div>
-        <div class="verify">🔐 Verified evidence · ${esc(CONFIG.domain)}/v/<b>${esc(CONFIG.slugify(j.ref))}</b>
-          ${j.hashes && j.hashes.length ? `<br><span style="font-size:9px;opacity:.8" class="mono">SHA-256 ${esc(j.hashes[0].slice(0, 24))}…</span>` : ''}</div>
+        <div class="verify">🔎 Record reference · ${esc(CONFIG.domain)}/v/<b>${esc(CONFIG.slugify(j.ref))}</b>
+          ${j.hashes && j.hashes.length ? `<br><span style="font-size:9px;opacity:.8" class="mono">${j.hashes.length} photo digest${j.hashes.length === 1 ? '' : 's'} recorded on this job card</span>` : ''}</div>
         <div class="disclaim">This report records work performed as described. It is not a certificate of
           regulatory compliance unless issued by a licensed contractor.</div>
       </div>

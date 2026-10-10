@@ -254,17 +254,39 @@
       c.y += 108;
     }
 
-    /* --- verification footer ------------------------------------------- */
-    c.need(70);
+    /* --- record & reference footer ------------------------------------
+       V1 has no backend. Nothing a server cannot check may be described
+       here as verifiable: an earlier build stamped "Verified evidence —
+       this report is tamper-evident" onto every PDF, and the link it
+       printed led to a static page that could not verify anything.
+
+       So this box now says only what is true of the file in the
+       customer's hands: who signed, when, how many photographs carry a
+       stamp, and where to quote the reference. Third-party verification
+       needs the digest to be stored server-side — see PRO_FEASIBILITY.md.
+    */
+    const photoCount = ['before', 'during', 'after', 'serial']
+      .reduce((n, s) => n + ((photos[s] || []).length), 0);
+    const signedOn = (sigs && sigs.customer && sigs.customer.at) ||
+      job.lockedAt || job.completedAt || job.startedAt;
+
+    c.need(76);
     c.y += 6;
     PDFT.rect(c.p, M, c.y - 4, CW, 44, [0.902, 0.957, 0.937]);
-    PDFT.text(c.p, M + 12, c.y + 9, 'VERIFIED EVIDENCE', { size: 7.5, bold: true, color: GREEN });
-    PDFT.text(c.p, M + 12, c.y + 21, 'This report is tamper-evident. Verify at', { size: 8, color: INK });
+    PDFT.text(c.p, M + 12, c.y + 9, 'RECORD & REFERENCE', { size: 7.5, bold: true, color: GREEN });
+    PDFT.text(c.p, M + 12, c.y + 21,
+      'Signed by both parties on ' + dstr(signedOn) + '.' +
+      (photoCount
+        ? ' ' + photoCount + ' photograph' + (photoCount === 1 ? '' : 's') +
+          (photoCount === 1 ? ' carries' : ' carry') + ' a time and location stamp.'
+        : ''),
+      { size: 8, color: INK });
     PDFT.text(c.p, M + 12, c.y + 33, CFG.verifyLabel(job.ref),
       { size: 8.5, bold: true, color: INK });
     if (job.hashes && job.hashes.length) {
-      const sh = job.hashes[0].slice(0, 32);
-      PDFT.text(c.p, M + CW - 12 - PDFT.width('SHA-256 ' + sh, 6.8, false), c.y + 33, 'SHA-256 ' + sh,
+      const lbl = 'Photo 1 of ' + job.hashes.length + ' · SHA-256 ' +
+        job.hashes[0].slice(0, 16) + '…';
+      PDFT.text(c.p, M + CW - 12 - PDFT.width(lbl, 6.8, false), c.y + 33, lbl,
         { size: 6.8, color: MUTED });
     }
     c.y += 56;

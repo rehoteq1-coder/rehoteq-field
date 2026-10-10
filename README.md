@@ -101,7 +101,7 @@ npm install
 npm test
 ```
 
-59 automated checks in four suites: a full walkthrough of every screen and
+43 automated checks in four suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -132,6 +132,18 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.0.5** — **Fixed: the app was making three claims it could not support.**
+Every service report PDF was stamped *"VERIFIED EVIDENCE — This report is
+tamper-evident"* above a `field.rehoteq.com/v/<ref>` link. V1 has no backend:
+that link lands on a static page that cannot verify anything. The photos screen
+told technicians their photos were *"hash-chained"* — they are not. `job.hashes`
+is a list of independent per-photo SHA-256 digests with no linkage between them,
+and only the first was ever printed, so the second and third photographs were
+not represented in the fingerprint at all. Both wordings now say only what is
+true: who signed, when, how many photographs carry a stamp, and the reference.
+Real third-party verification is a Phase-3 item — see `PRO_FEASIBILITY.md`.
+Also corrected the test count in this file (43 checks, not 59). Cache → v6.
 
 **v1.0.4** — **Fixed: every printed link pointed at `rehoteq.ng`, a domain
 nobody owns.** Four hardcoded references — including the QR code glued to a
