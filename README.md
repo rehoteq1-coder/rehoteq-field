@@ -43,6 +43,7 @@ That's the whole product in one tap.
 | `report.js` | 376 | Service report + quotation layouts |
 | `qr.js` | 314 | QR encoder (byte mode, ECC-M) for solar passports |
 | `db.js` | 184 | IndexedDB layer — the seam where Supabase plugs in |
+| `FIREBASE_PLAN.md` | — | How accounts, real Pro enforcement, the 14-day trial and sub-users get built — and the one rule that keeps the app offline-first |
 | `MARKET_REVIEW.md` | — | Competitor pricing, where we win and lose, and why we should lead with *proof* rather than scheduling |
 | `WHERE_YOUR_DATA_LIVES.md` | — | **Read this before field use.** Where jobs are stored, how you lose them, and which backup button actually counts |
 | `sw.js` | 42 | Offline caching |
@@ -115,7 +116,7 @@ npm install
 npm test
 ```
 
-107 automated checks in seven suites: a full walkthrough of every screen and
+119 automated checks in eight suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -146,6 +147,27 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.1.0** — **Company bio and the site brief.**
+
+*About your business.* A short bio (two or three lines) in Settings → profile.
+It prints as an **ABOUT US** block on every quotation — the document that has
+to win the next job. It deliberately does *not* print on the service report:
+that is evidence, and a sales paragraph on an evidence document is noise. With
+no bio set, no empty block appears.
+
+*Site instructions.* New field on the job: **what must be done, and how**, set
+by the lead engineer. It stays pinned at the top of the job card so the
+technician is not working from memory, and it prints on the service report
+under **SITE INSTRUCTIONS**, ahead of the findings — so the report reads as
+*here is what I was told to do, here is what I did*.
+
+This is the first half of the staff workflow, and it is the half that needs no
+server: the **instruction** works offline today. The **assignment** — pushing a
+job onto someone else's phone — cannot, and waits for `FIREBASE_PLAN.md`.
+
+Jobs saved before this existed have no `instructions` field at all, so the
+report is built to tolerate its absence rather than throwing.
 
 **v1.0.9** — **Prices live in one place, and the paywall stopped advertising
 a price you cannot pay.**

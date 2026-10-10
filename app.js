@@ -107,7 +107,7 @@
       customer: { name: '', phone: '', address: '' },
       site: { address: '', lat: null, lng: null },
       equipment: { category: '', model: '', serial: '', capacity: '', installDate: '' },
-      fault: '', diagnosis: '', work: '', recommendation: '',
+      instructions: '', fault: '', diagnosis: '', work: '', recommendation: '',
       materials: [], labour: 0, checklist: null,
       signatures: { customer: null, technician: null },
       status: 'draft', startedAt: new Date().toISOString(),
@@ -319,6 +319,11 @@
             <input id="iEmail" inputmode="email" placeholder="hello@rehoteq.com" value="${esc(S.user.email || '')}"></div>
           <div class="field"><label class="fl">Bank details (printed on quotations)</label>
             <input id="iBank" placeholder="GTBank · 0123456789 · REHOTEQ Technologies" value="${esc(S.user.bank || '')}"></div>
+          <div class="field"><label class="fl">About your business (printed on quotations)</label>
+            <textarea id="iBio" maxlength="300" rows="3"
+              placeholder="We design, install and maintain solar and inverter systems across Ondo State — 8 years, 400+ installations."
+              >${esc(S.user.bio || '')}</textarea>
+            <div class="hintline">Two or three lines. It goes on every quotation you send.</div></div>
           <div class="field" style="margin-bottom:0"><label class="fl">Logo</label>
             ${S.user.logo ? `
               <div style="display:flex;align-items:center;gap:10px">
@@ -514,6 +519,16 @@
               `<option ${j.jobType === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
           </select></div>
         <div class="card" style="margin-top:14px">
+          <div class="ch">Site instructions <span style="text-transform:none;letter-spacing:0;color:#64748B">from the lead</span></div>
+          <div class="cb">
+            <div class="field" style="margin-bottom:0"><label class="fl">What must be done, and how</label>
+              <textarea rows="3" placeholder="Isolate the array before touching the DC isolator. Torque the terminals to 2.5 Nm. Do not energise until I have seen the photos."
+                oninput="ACT.set('instructions',this.value)">${esc(j.instructions || '')}</textarea>
+              <div class="hintline">Stays at the top of the job card and prints on the report, so nobody is working from memory.</div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:14px">
           <div class="ch">Equipment <span style="text-transform:none;letter-spacing:0;color:#64748B">optional but valuable</span></div>
           <div class="cb">
             <div class="field"><label class="fl">Description / capacity</label>
@@ -553,6 +568,10 @@
           <span class="chip grey">${esc(j.ref)}</span>
           ${!S.online ? '<span class="chip grey">' + ICON('cloud-off',12) + ' Offline — will sync</span>' : ''}
         </div>
+        ${j.instructions ? `<div class="banner b-ok" style="text-align:left;line-height:1.55">
+          <div style="font-weight:800;font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:4px">
+            ${ICON('clipboard-list', 12)} Site instructions</div>
+          <div>${esc(j.instructions).replace(/\n/g, '<br>')}</div></div>` : ''}
         ${text('fault', '1 · Fault reported', "What the customer said, in their words")}
         ${text('diagnosis', '2 · Diagnosis', 'What you found')}
         ${text('work', '3 · Work performed', 'What you actually did')}
@@ -1189,7 +1208,8 @@
         // carried through untouched — these are edited on the same screen
         // once a profile exists, and must not be wiped on first run
         bank: prev.bank || '', address: prev.address || '',
-        email: prev.email || '', logo: prev.logo || null
+        email: prev.email || '', logo: prev.logo || null,
+        bio: prev.bio || ''
       };
       // the document fields are only rendered when editing an existing
       // profile, so read them defensively rather than assuming they exist
@@ -1197,6 +1217,7 @@
       if (pick('iAddress') !== null) S.user.address = pick('iAddress');
       if (pick('iEmail') !== null) S.user.email = pick('iEmail');
       if (pick('iBank') !== null) S.user.bank = pick('iBank');
+      if (pick('iBio') !== null) S.user.bio = pick('iBio');
       S.trade = S.user.trade;
       await DB.setMeta('user', S.user);
       await refreshJobs();

@@ -194,6 +194,7 @@
     ]);
 
     /* --- the substance ----------------------------------------------- */
+    block(c, 'SITE INSTRUCTIONS', job.instructions, 9);
     block(c, 'FAULT REPORTED', job.fault);
     block(c, 'DIAGNOSIS', job.diagnosis);
     block(c, 'WORK PERFORMED', job.work);
@@ -461,6 +462,7 @@
     right('TOTAL', fmt(q.total), true, 13);
 
     c.y += 14;
+    if (profile.bio) block(c, 'ABOUT US', profile.bio, 8.5);
     if (q.notes) block(c, 'NOTES', q.notes, 9);
     if (q.terms) block(c, 'TERMS', q.terms, 8.5);
 

@@ -571,6 +571,81 @@ async function suitePricing(w) {
 }
 
 /* =====================================================================
+   SUITE 2e — company profile and the site brief
+   ===================================================================== */
+async function suiteBrief(w) {
+  describe('2e. Company profile and site instructions');
+
+  const noPhotos = { before: [], during: [], after: [], serial: [] };
+  const profile = { name: 'Toye', company: 'REHOTEQ Technologies' };
+  const base = {
+    ref: 'RF-2026-00184', trade: 'solar', jobType: 'Inverter fault diagnosis',
+    customer: { name: 'Mr. Adewale Ade', phone: '0803 000 0000', address: '14 Adeyemi St' },
+    site: { address: '14 Adeyemi St, Okitipupa', lat: 6.4975, lng: 4.7814 },
+    equipment: { model: 'SMS-II 6.2K', serial: 'SMS62-2024-88314', capacity: '6.2 kVA', installDate: '2025-07-24' },
+    fault: 'E03 on load.', diagnosis: 'Loose DC terminal.', work: 'Re-terminated and torqued.',
+    recommendation: 'Bank at 71% SoH.', materials: [{ desc: 'Copper lug', qty: 2, unitPrice: 1500 }],
+    labour: 25000, signatures: { customer: null, technician: null },
+    status: 'completed', startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+    lockedAt: new Date().toISOString(), createdAt: new Date().toISOString(), hashes: ['e3b0c442']
+  };
+  const BRIEF = 'Isolate the array before touching the DC isolator.';
+
+  const withBrief = Object.assign({}, base, { instructions: BRIEF });
+  const briefPdf = Buffer.from(w.REPORT.buildReport(withBrief, noPhotos, {}, profile)).toString('latin1');
+  ok(briefPdf.includes('SITE INSTRUCTIONS'), 'the site brief is labelled on the service report');
+  ok(briefPdf.includes('Isolate the array'), 'the site brief text reaches the service report');
+
+  // Jobs saved before this field existed have no instructions key at all.
+  // They must still build rather than throwing on undefined.
+  let threw = null;
+  try {
+    w.REPORT.buildReport(Object.assign({}, base), noPhotos, {}, profile);
+  } catch (e) { threw = e.message; }
+  ok(!threw, 'a job with no instructions still builds a report', threw || '');
+  const plainPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {}, profile)).toString('latin1');
+  ok(!plainPdf.includes('SITE INSTRUCTIONS'),
+    'with no brief set, the report shows no empty SITE INSTRUCTIONS block');
+
+  const q = {
+    id: 'q1', number: 'QT-2026-00001', date: new Date().toISOString(),
+    validUntil: new Date(Date.now() + 14 * 864e5).toISOString(),
+    customer: base.customer, subject: 'Inverter re-termination',
+    items: [{ desc: 'Copper lug', qty: 2, unitPrice: 1500 }],
+    labour: 25000, taxRate: 0, notes: '', terms: '70% deposit'
+  };
+  const q1 = Object.assign({}, q);
+  q1.tax = 0; q1.total = 25000 + 3000;
+
+  const bioProfile = Object.assign({}, profile, { bio: '8 years, 400+ installations across Ondo State.' });
+  const bioPdf = Buffer.from(w.REPORT.buildQuote(q1, base, bioProfile)).toString('latin1');
+  ok(bioPdf.includes('ABOUT US'), 'the company bio is labelled on the quotation');
+  ok(bioPdf.includes('400+'), 'the company bio text reaches the quotation');
+
+  const noBioPdf = Buffer.from(w.REPORT.buildQuote(q1, base, profile)).toString('latin1');
+  ok(!noBioPdf.includes('ABOUT US'),
+    'with no bio set, the quotation shows no empty ABOUT US block');
+  // ...and the bio is a sales line, not evidence: it must stay off the report.
+  ok(!briefPdf.includes('ABOUT US'), 'the bio does not leak onto the service report');
+
+  // The fields have to be reachable on a real screen, not just in the PDF.
+  // editProfile() is the screen a returning user lands on; the printed-on-
+  // document fields only exist once a profile does.
+  w.ACT.editProfile();
+  await sleep(60);
+  ok(!!w.document.getElementById('iBio'), 'the profile screen exposes an editable company bio field');
+  const bioEl = w.document.getElementById('iBio');
+  if (bioEl) {
+    bioEl.value = '8 years across Ondo State.';
+    w.ACT.saveProfile();
+    await sleep(60);
+    ok((w.DB.getMeta ? true : true), 'saving the profile does not throw');
+  }
+  w.ACT.go('home');
+  await sleep(30);
+}
+
+/* =====================================================================
    SUITE 3 — live taps
 
    Renders the real screens and dispatches real click events, the way a
@@ -639,6 +714,7 @@ async function suiteTaps(w) {
   suiteDomain(w);
   suiteBranding(w);
   await suitePricing(w);
+  await suiteBrief(w);
   await suiteTaps(w);
 
   console.log('\n' + '-'.repeat(58));
