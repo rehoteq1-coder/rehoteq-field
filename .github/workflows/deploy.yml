@@ -53,9 +53,9 @@ jobs:
       - name: Assemble the site
         run: |
           mkdir -p _site
-          for f in index.html 404.html config.js app.js data.js db.js pdf.js \
-                   qr.js report.js styles.css sw.js manifest.webmanifest \
-                   icon-192.png icon-512.png CNAME; do
+          for f in index.html 404.html config.js icons.js firebase.js \
+                   app.js data.js db.js pdf.js qr.js report.js styles.css \
+                   sw.js manifest.webmanifest icon-192.png icon-512.png CNAME; do
             if [ -f "$f" ]; then
               cp "$f" _site/
             else

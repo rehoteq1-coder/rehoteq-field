@@ -17,7 +17,7 @@
 | **V1 scope** | 4 trades: Electrical, Solar, CCTV, Networking |
 | **Build stack** | Supabase (backend) + PWA front-end first, FlutterFlow native second |
 | **Time to first paying user** | 4–6 weeks |
-| **Price** | Free / **Pro ₦4,000/mo** / **Business ₦15,000/mo (5 seats)** / Enterprise custom |
+| **Price** | Free / **Pro ₦3,000/mo** (₦30,000/yr) / **Business ₦15,000/mo (5 seats)** / Enterprise custom |
 | **North-star metric** | Technician sends his first PDF report on WhatsApp within 24 hours of install |
 | **Kill criterion** | If <30% of technicians who finish one job card ever finish a second, the job card is not the wedge — pivot to Proof-only |
 
@@ -75,7 +75,7 @@ Confirmed: Omni Field Pro is a genuinely capable AI-powered job/field-service pl
 Two gaps it leaves open, and they are exactly your wedge:
 
 1. **Geography.** It is SA-first. Anglophone West Africa — Nigeria especially — is not its home turf.
-2. **Buyer.** It sells to the **owner** (dispatch, scheduling, track your technicians, run your business). You sell to the **technician** (here is the thing that makes you look professional and gets you paid). Bottom-up, single-user, ₦4,000/month, zero setup, no training, no IT department.
+2. **Buyer.** It sells to the **owner** (dispatch, scheduling, track your technicians, run your business). You sell to the **technician** (here is the thing that makes you look professional and gets you paid). Bottom-up, single-user, ₦3,000/month, zero setup, no training, no IT department.
 
 Omni Field is the company you will be compared to in a pitch deck. It is not the company that will beat you for a solar technician in Okitipupa who wants to send a PDF to Mr. Ade.
 
@@ -237,15 +237,15 @@ Quotation is the feature that makes the app *revenue-positive* for the technicia
 Filter by status/trade/customer/date. Search. Offline badge (⏳ pending sync). Swipe to duplicate (a repeat maintenance visit should cost 3 taps).
 
 ### Screen 13 — Paywall
-**Placement is the entire strategy.** Not at signup. Not on the home screen. The paywall fires **immediately after the technician finishes his first job card and taps "Generate PDF."** He has already done the work. The report is on screen. He is looking at something that makes him look professional in front of Mr. Ade. *That* is the moment ₦4,000 is cheap.
+**Placement is the entire strategy.** Not at signup. Not on the home screen. The paywall fires **immediately after the technician finishes his first job card and taps "Generate PDF."** He has already done the work. The report is on screen. He is looking at something that makes him look professional in front of Mr. Ade. *That* is the moment ₦3,000 is cheap.
 
 ```
         🔒 You've used all 3 free reports
 
    ┌─────────────────────────────────┐
    │ PRO                             │
-   │ ₦4,000 / month                  │
-   │ ₦40,000 / year  (2 months free) │
+   │ ₦3,000 / month                  │
+   │ ₦30,000 / year  (2 months free) │
    │                                 │
    │ ✓ Unlimited job cards & PDFs    │
    │ ✓ No watermark                  │
@@ -274,7 +274,7 @@ Installer gets a fleet dashboard of every system ever installed — **which is a
 
 | | **Free** | **Pro** | **Business** | **Enterprise** |
 |---|---|---|---|---|
-| **Price** | ₦0 | **₦4,000/mo** (₦40,000/yr) | **₦15,000/mo** (5 seats) | Custom, from ₦75,000/mo |
+| **Price** | ₦0 | **₦3,000/mo** (₦30,000/yr) | **₦15,000/mo** (5 seats) | Custom, from ₦75,000/mo |
 | Job cards / month | 3 | Unlimited | Unlimited | Unlimited |
 | PDF report | Watermarked | Clean, branded | Branded + logo | White-label |
 | Trades | 1 | All 4 | All + custom | All + custom |
@@ -295,10 +295,10 @@ Installer gets a fleet dashboard of every system ever installed — **which is a
 **Trial:** 14 days of Pro, no card.
 
 ### Pricing notes
-- **₦4,000 is roughly one call-out fee.** Frame it that way in marketing: *"One extra job pays for the whole year."* That is the actual ROI, and it is true.
-- **Anchor on annual.** ₦40,000/yr (2 months free) lifts cash up front, which matters more than MRR optics for a bootstrapped product.
+- **₦3,000 is roughly one call-out fee.** Frame it that way in marketing: *"One extra job pays for the whole year."* That is the actual ROI, and it is true.
+- **Anchor on annual.** ₦30,000/yr (2 months free) lifts cash up front, which matters more than MRR optics for a bootstrapped product.
 - **Solar Passport at ₦500/system is the sleeper.** It is transactional, grows with the installer's business, has near-zero marginal cost, and physically glues REHOTEQ Field to every install they ever do. Push it hard.
-- **Do not discount.** Discounting a ₦4,000 product destroys the unit economics and attracts the wrong users. Give more free trial instead.
+- **Do not discount.** Discounting a ₦3,000 product destroys the unit economics and attracts the wrong users. Give more free trial instead.
 
 ---
 
@@ -401,7 +401,7 @@ The technician speaks; the app does the admin. This is where your example conver
 | Text/voice diagnosis (V3) | small/mid model | ₦8–₦25 | cache identical queries |
 | Equipment ID from photo (V2) | vision model | ₦15–₦40 | compress image to ≤1024 px first |
 
-At ₦4,000/mo with 50 AI credits and ~₦25 average cost, AI cost is ~₦1,250 worst case — **~31% of revenue**, before caching and before most queries hit the free library. Acceptable. Cache aggressively; the same ten fault codes will be 60% of all queries.
+At ₦3,000/mo with 50 AI credits and ~₦25 average cost, AI cost is ~₦1,250 worst case — **~42% of revenue**, before caching and before most queries hit the free library. Acceptable. Cache aggressively; the same ten fault codes will be 60% of all queries.
 
 ---
 
@@ -480,7 +480,7 @@ Then, once you know which screens actually matter, rebuild those screens nativel
 | **Data cost / photo upload** | High | Compress to ≤350 KB; Wi-Fi-only default upload; data-saver setting; offline-first so a bad connection never blocks work |
 | **Signature capture on cheap phones** | Medium | Big canvas, stylus-friendly, "sign on the customer's phone via link" as an alternative |
 | **WhatsApp PDF friction** | Medium | One-tap share sheet; also offer a verification link (much lighter than a PDF) as the default share |
-| **Collecting ₦4,000 from informal technicians** | High | Annual plan via bank transfer, airtime top-up equivalents, agent collection; annual-first pricing to reduce billing events |
+| **Collecting ₦3,000 from informal technicians** | High | Annual plan via bank transfer, airtime top-up equivalents, agent collection; annual-first pricing to reduce billing events |
 | **Omni Field moves down-market into Nigeria** | Medium | Our defence is depth in the single-technician workflow + the evidence/tamper chain + local equipment corpus. Pick up Business/Enterprise accounts before they arrive; be the incumbent |
 | **You get pulled back into RSMS** | High | Phase 0–2 have hard dates. RSMS is a business; REHOTEQ Field is a company. Do not let one eat the other. |
 

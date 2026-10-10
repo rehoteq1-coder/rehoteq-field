@@ -9,10 +9,10 @@
   'use strict';
 
   const TRADES = [
-    { id: 'electrical', icon: '⚡', name: 'Electrical', desc: 'Wiring · inverter · DB' },
-    { id: 'solar',      icon: '☀️', name: 'Solar',      desc: 'PV · battery · hybrid' },
-    { id: 'cctv',       icon: '📹', name: 'CCTV',       desc: 'Install · service · NVR' },
-    { id: 'networking', icon: '🌐', name: 'Networking', desc: 'LAN · WiFi · fibre' }
+    { id: 'electrical', icon: 'zap', name: 'Electrical', desc: 'Wiring · inverter · DB' },
+    { id: 'solar',      icon: 'solar-panel', name: 'Solar',      desc: 'PV · battery · hybrid' },
+    { id: 'cctv',       icon: 'cctv', name: 'CCTV',       desc: 'Install · service · NVR' },
+    { id: 'networking', icon: 'router', name: 'Networking', desc: 'LAN · WiFi · fibre' }
   ];
 
   const JOB_TYPES = {
@@ -496,7 +496,9 @@
      ------------------------------------------------------------------- */
   const PLANS = {
     free:     { name: 'Free',     reports: 3,    quotes: 2, price: 0,     label: '₦0' },
-    pro:      { name: 'Pro',      reports: -1,   quotes: -1, price: 4000, label: '₦4,000/mo' },
+    // yearPrice is what a year actually costs. Everything the app says about
+    // the annual saving is worked out from it, so the two cannot drift.
+    pro:      { name: 'Pro',      reports: -1,   quotes: -1, price: 3000, label: '₦3,000/mo', yearPrice: 30000 },
     business: { name: 'Business', reports: -1,   quotes: -1, price: 15000, label: '₦15,000/mo' }
   };
 

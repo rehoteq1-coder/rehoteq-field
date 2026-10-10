@@ -43,12 +43,16 @@
 
   // The standard-14 fonts use WinAnsiEncoding, so printable ASCII plus the
   // Latin-1 supplement (0xA0–0xFF) are all renderable. Anything outside
-  // that is transliterated or dropped. ₦ is absent from WinAnsi, so Naira
-  // amounts are written "NGN 25,000.00" — embed a TTF if we ever need the
-  // real glyph.
+  // that is transliterated or dropped.
+  //
+  // ₦ (U+20A6) is deliberately NOT transliterated here. It is absent from
+  // WinAnsi, so it cannot be drawn as a character — instead `text()` splits
+  // it out and `naira()` draws it as vector paths. Sanitize keeps it so
+  // that `width()` and `wrap()` can measure it; `esc()` strips it as a last
+  // resort, because a raw U+20A6 reaching the content stream would emit an
+  // invalid octal escape and corrupt the PDF.
   function sanitize(s) {
     return String(s === null || s === undefined ? '' : s)
-      .replace(/₦/g, 'NGN ')
       .replace(/[‘’‛]/g, "'")
       .replace(/[“”]/g, '"')
       .replace(/[–—]/g, '-')
@@ -58,13 +62,15 @@
       .replace(/•/g, '-')
       .replace(/[ΩΩ]/g, 'ohm')
       .replace(/µ/g, 'µ')
-      .replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
+      // ₦ survives sanitize on purpose — `width()` counts it and `text()`
+      // swaps it for a drawn glyph. It is stripped again in `esc()`.
+      .replace(/[^\x20-\x7E\xA0-\xFF\u20A6]/g, '');
   }
   // Escape to a PDF literal string. Everything outside printable ASCII
   // becomes a 3-digit octal escape, so the whole content stream stays
   // single-byte and the xref offsets stay honest.
   function esc(s) {
-    const t = sanitize(s);
+    const t = sanitize(s).replace(/\u20A6/g, '');   // drawn as a path, never as a glyph
     let out = '';
     for (let i = 0; i < t.length; i++) {
       const c = t.charCodeAt(i);
@@ -74,12 +80,17 @@
     }
     return out;
   }
+  // Advance width of the drawn naira sign: Helvetica's own 'N' advance,
+  // so it sits in a run of text exactly where an N would.
+  function nairaW(size) { return 0.722 * size; }
+
   function width(s, size, bold) {
     const t = bold ? W_BOLD : W_REG;
     let w = 0;
     const str = sanitize(s);
     for (let i = 0; i < str.length; i++) {
       const c = str[i];
+      if (c === '\u20A6') { w += 722; continue; }   // see nairaW()
       if (W_EXTRA[c] !== undefined) w += W_EXTRA[c];
       else w += (t[c] !== undefined ? t[c] : 556);
     }
@@ -111,17 +122,99 @@
 
   /* --- drawing ops (top-down y coordinates, like the web) ------------ */
 
-  function text(p, x, topY, str, o) {
-    o = o || {};
-    const size = o.size || 10;
-    const bold = !!o.bold;
-    const c = o.color || [0, 0, 0];
+  function textRun(p, x, topY, str, size, bold, c) {
     const y = PH - topY;
     p.ops.push(
       'BT /' + (bold ? 'F2' : 'F1') + ' ' + size + ' Tf ' +
       c[0].toFixed(3) + ' ' + c[1].toFixed(3) + ' ' + c[2].toFixed(3) + ' rg ' +
       '1 0 0 1 ' + x.toFixed(2) + ' ' + y.toFixed(2) + ' Tm (' + esc(str) + ') Tj ET'
     );
+  }
+
+  /* --- the naira sign ------------------------------------------------
+     ₦ is not in WinAnsiEncoding and there is no TTF embedded, so we draw
+     it: a Helvetica-proportioned 'N' (two stems plus the diagonal) with
+     the two crossbars that turn an N into the naira sign. Side bearings,
+     cap height and stem weights are Helvetica's own metrics, so it sits
+     correctly beside the standard-14 text around it at any size.
+  */
+  function naira(p, x, topY, size, bold, c) {
+    const S = size;
+    const A = nairaW(S);
+    const lsb = 0.086 * S;            // Helvetica 'N' side bearing
+    const x0 = x + lsb;
+    const ink = A - lsb * 2;
+    const stem = (bold ? 0.107 : 0.078) * S;
+    // Helvetica's figures reach 0.728em above the baseline, a shade taller
+    // than its 0.717em cap height. The sign almost always sits next to
+    // figures, so match the figures rather than the caps.
+    const cap = 0.728 * S;
+    const base = topY;                // caller passes the baseline
+    const top = base - cap;
+
+    // The diagonal's perpendicular thickness equals the stems, so its
+    // horizontal thickness is larger by 1/cos(slant). Solve by iteration;
+    // three passes is well inside a point at any size we print.
+    let w = stem;
+    for (let i = 0; i < 4; i++) {
+      const dx = ink - stem - w;
+      w = stem * Math.sqrt(dx * dx + cap * cap) / cap;
+    }
+
+    const rgb = c[0].toFixed(3) + ' ' + c[1].toFixed(3) + ' ' + c[2].toFixed(3);
+    const X = v => v.toFixed(2);
+    const Y = v => (PH - v).toFixed(2);
+    const box = (ax, ay, bx, by, cx2, cy, dx2, dy) =>
+      rgb + ' rg ' + X(ax) + ' ' + Y(ay) + ' m ' + X(bx) + ' ' + Y(by) + ' l ' +
+      X(cx2) + ' ' + Y(cy) + ' l ' + X(dx2) + ' ' + Y(dy) + ' l h f';
+
+    const ops = [
+      // left stem
+      box(x0, base, x0, top, x0 + stem, top, x0 + stem, base),
+      // right stem
+      box(x0 + ink - stem, base, x0 + ink - stem, top, x0 + ink, top, x0 + ink, base),
+      // diagonal, top-left to bottom-right
+      box(x0 + stem, top, x0 + stem + w, top, x0 + ink, base, x0 + ink - w, base)
+    ];
+
+    // two crossbars, overset a touch so they read as crossing the letter
+    const bar = stem * 0.94;
+    const over = 0.012 * S;
+    [0.645, 0.345].forEach(fy => {
+      const by = base - cap * fy;
+      ops.push(box(x0 - over, by + bar / 2, x0 + ink + over, by + bar / 2,
+                   x0 + ink + over, by - bar / 2, x0 - over, by - bar / 2));
+    });
+
+    p.ops.push(ops.join('\n'));
+  }
+
+  function text(p, x, topY, str, o) {
+    o = o || {};
+    const size = o.size || 10;
+    const bold = !!o.bold;
+    const c = o.color || [0, 0, 0];
+    const s = String(str === null || str === undefined ? '' : str);
+
+    if (s.indexOf('\u20A6') === -1) return textRun(p, x, topY, s, size, bold, c);
+
+    // Mixed run: emit the text either side of each ₦, drawing the sign
+    // itself as paths at the right advance.
+    let cx = x, buf = '';
+    const flush = () => {
+      if (!buf) return;
+      textRun(p, cx, topY, buf, size, bold, c);
+      cx += width(buf, size, bold);
+      buf = '';
+    };
+    for (const ch of s) {
+      if (ch === '\u20A6') {
+        flush();
+        naira(p, cx, topY, size, bold, c);
+        cx += nairaW(size);
+      } else buf += ch;
+    }
+    flush();
   }
 
   // colours are [r,g,b] in 0..1
@@ -242,6 +335,6 @@
 
   global.PDFT = {
     PDF: PDF, build: build, text: text, rect: rect, line: line, image: image,
-    width: width, wrap: wrap, sanitize: sanitize, PW: PW, PH: PH
+    width: width, wrap: wrap, sanitize: sanitize, nairaW: nairaW, PW: PW, PH: PH
   };
 })(window);

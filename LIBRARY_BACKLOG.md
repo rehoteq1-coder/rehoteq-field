@@ -1,7 +1,7 @@
 # Troubleshooting library — expansion plan
 
 **Target: ~60 guides.** This file is the single most valuable thing in the
-product. It is what a technician pays ₦4,000 for, and it is the training corpus
+product. It is what a technician pays ₦3,000 for, and it is the training corpus
 that makes AI diagnosis (V3) possible later.
 
 **How we'll do this:** you dictate from memory and from real jobs. I structure

@@ -2,10 +2,10 @@
    Cache the app shell so the technician can open the app in a basement,
    on a rooftop, or anywhere else the network has given up. */
 // Bump this on every deploy, or installed phones keep serving the old app.
-const CACHE = 'rehoteq-field-v5';
+const CACHE = 'rehoteq-field-v16';
 const SHELL = [
-  './', 'index.html', '404.html', 'styles.css', 'config.js', 'data.js', 'qr.js',
-  'pdf.js', 'db.js', 'report.js', 'app.js', 'manifest.webmanifest',
+  './', 'index.html', '404.html', 'styles.css', 'config.js', 'icons.js', 'data.js', 'qr.js',
+  'pdf.js', 'db.js', 'report.js', 'firebase.js', 'app.js', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png'
 ];
 
@@ -21,6 +21,14 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Same-origin shell, plus the Firebase SDK once it has actually been
+// asked for. Nothing else from a third party is stored.
+function isCacheable(url) {
+  const u = new URL(url);
+  if (u.origin === self.location.origin) return true;
+  return u.origin === 'https://www.gstatic.com' && u.pathname.indexOf('/firebasejs/') === 0;
+}
+
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
@@ -33,7 +41,7 @@ self.addEventListener('fetch', e => {
         return hit;
       }
       return fetch(e.request).then(res => {
-        if (res && res.ok && new URL(e.request.url).origin === self.location.origin) {
+        if (res && res.ok && isCacheable(e.request.url)) {
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, copy));
         }

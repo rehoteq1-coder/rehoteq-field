@@ -1,0 +1,130 @@
+rules_version = '2';
+
+// =====================================================================
+// REHOTEQ Field — Firestore security rules
+//
+// These rules ARE the product's security. The Firebase web config is
+// public by design — it ships in the browser — so once it is out there,
+// anyone can write a script against this database. The only thing
+// standing between a stranger and every customer's name, phone number
+// and home address is this file.
+//
+// Read it as a contract, not boilerplate.
+// =====================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ---- helpers ---------------------------------------------------- */
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    function memberDoc(companyId, uid) {
+      return get(/databases/$(database)/documents/companies/$(companyId)/members/$(uid)).data;
+    }
+    function isMember(companyId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid));
+    }
+    function isLeadOf(companyId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid))
+        && memberDoc(companyId, request.auth.uid).role == 'lead';
+    }
+
+    // Fields only a server may write. If the client could set `plan`, the
+    // paywall would be a lie again — the whole point of moving to a server
+    // was that the technician does not get to decide whether he has paid.
+    function entitlementKeys() {
+      return ['plan', 'trialEndsAt', 'expiresAt', 'entitlementSource', 'lastPaymentRef'].toSet();
+    }
+    function touchesEntitlement() {
+      return request.resource.data.diff(resource.data)
+               .affectedKeys().hasAny(entitlementKeys());
+    }
+
+    /* ---- user accounts ---------------------------------------------- */
+
+    match /users/{uid} {
+      // You may read your own account. You may not read anyone else's.
+      allow read: if isSelf(uid);
+
+      // The account record is created by a Cloud Function the moment a user
+      // first signs in, so the 14-day trial clock is set by the server and
+      // not by the device. The client never creates it.
+      allow create: if false;
+
+      // You may edit your own profile — name, phone, company, logo.
+      // You may not edit what you are entitled to.
+      allow update: if isSelf(uid) && !touchesEntitlement();
+
+      allow delete: if false;
+    }
+
+    /* ---- companies (the Business plan unit) -------------------------- */
+
+    match /companies/{companyId} {
+      // Only members see a company at all.
+      allow read: if isMember(companyId);
+
+      // Any signed-in user may start a company. They become its first lead
+      // because the client writes the owner as itself — enforced below.
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+
+      // Only a lead may change the company's name, address or bio.
+      allow update, delete: if isLeadOf(companyId);
+
+      match /members/{memberUid} {
+        // Members see each other. Outsiders see nothing.
+        allow read: if isMember(companyId);
+
+        // A lead adds technicians and sets their role. Nobody else does.
+        allow create, update: if isLeadOf(companyId);
+
+        // A lead may remove a technician. A technician may remove
+        // themselves — that is how someone leaves.
+        allow delete: if isLeadOf(companyId) || isSelf(memberUid);
+      }
+    }
+
+    /* ---- jobs -------------------------------------------------------- */
+
+    // Job records carry customer names, phone numbers and home addresses.
+    // A leak here is a data-protection problem, not an inconvenience.
+    match /jobs/{jobId} {
+      function owns()      { return resource.data.ownerId == request.auth.uid; }
+      function assigned()  { return resource.data.assignedTo == request.auth.uid; }
+
+      allow read: if signedIn() && (
+          owns()
+          || assigned()
+          || (resource.data.companyId != null && isLeadOf(resource.data.companyId))
+        );
+
+      // You may only create a job that belongs to you.
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+
+      // The owner and the technician sent to the job may both update it.
+      // A technician must not be able to reassign it to someone else.
+      allow update: if signedIn() && (owns() || assigned())
+        && request.resource.data.ownerId == resource.data.ownerId;
+
+      // Only the owner deletes. Evidence does not quietly disappear.
+      allow delete: if signedIn() && owns();
+    }
+
+    /* ---- everything else -------------------------------------------- */
+
+    // Default deny. A new collection is invisible until someone writes a
+    // rule for it on purpose.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

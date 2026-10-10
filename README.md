@@ -36,12 +36,16 @@ That's the whole product in one tap.
 | File | Lines | What it does |
 |---|---|---|
 | `index.html` | 45 | App shell, manifest, service-worker registration |
-| `app.js` | 1350 | State, 15 views, all actions |
+| `app.js` | 1746 | State, 15 views, all actions |
+| `icons.js` | 117 | Generated inline SVG icon set (Lucide, ISC) |
 | `data.js` | 506 | **This file is the product** — 11 checklists, 12 troubleshooting guides |
 | `pdf.js` | 240 | PDF writer from scratch — no library, works offline |
 | `report.js` | 376 | Service report + quotation layouts |
 | `qr.js` | 314 | QR encoder (byte mode, ECC-M) for solar passports |
 | `db.js` | 184 | IndexedDB layer — the seam where Supabase plugs in |
+| `FIREBASE_PLAN.md` | — | How accounts, real Pro enforcement, the 14-day trial and sub-users get built — and the one rule that keeps the app offline-first |
+| `MARKET_REVIEW.md` | — | Competitor pricing, where we win and lose, and why we should lead with *proof* rather than scheduling |
+| `WHERE_YOUR_DATA_LIVES.md` | — | **Read this before field use.** Where jobs are stored, how you lose them, and which backup button actually counts |
 | `sw.js` | 42 | Offline caching |
 
 **No dependencies. No build step. No CDN.** Every line runs on the device.
@@ -58,6 +62,11 @@ That's the whole product in one tap.
 - ✅ Photo capture → compressed to ≤350 KB, with **time, GPS and name burned
   into the pixels**, SHA-256 hash-chained
 - ✅ Two signature pads → both signatures **lock the job card** as evidence
+- ✅ **Your own logo** on the masthead of every report and quotation
+- ✅ Business address, phone, email and bank details: collected once, printed
+  on every document
+- ✅ **₦ printed properly** — drawn as vector paths, since the standard PDF
+  fonts have no naira glyph (see Engineering notes)
 - ✅ Service report → **real PDF** → WhatsApp share
 - ✅ Quotation → line items, labour, VAT → **real PDF**
 - ✅ Solar passport → **real QR code**, live warranty countdown, service history
@@ -80,8 +89,14 @@ pagination and footers are correct.
 versions 1–6. Its output was verified **bit-for-bit identical** to the reference
 `qrcode` npm library across multiple inputs, including mask selection.
 
-**Currency.** ₦ is not in WinAnsiEncoding, so PDF amounts print as
-`NGN 25,000.00`. Embedding a TTF fixes this properly — noted as a Phase-2 item.
+**Currency, properly.** ₦ is not in WinAnsiEncoding and there is no embedded
+TTF, so a naira amount cannot be *typeset*. `pdf.js` draws it instead: a
+Helvetica-proportioned N with the two crossbars, built from vector paths at the
+font's own cap height, stem weight and side bearings. It sits on the same
+baseline as the figures beside it and costs nothing to render. The trade-off is
+that a drawn glyph is invisible to text extraction, so copying
+`₦28,000.00` out of a PDF gives you `28,000.00`. Embedding a real TTF remains
+the proper fix if that ever matters.
 
 **Backup was the gap.** The first build could export but not import — which
 isn't a backup. It now does both, including photos, and restores by *merging*
@@ -101,7 +116,7 @@ npm install
 npm test
 ```
 
-59 automated checks in four suites: a full walkthrough of every screen and
+187 automated checks in ten suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -132,6 +147,264 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.1.5** — **Fixed a landmine on the delivery belt, then merged everything to `main`.**
+
+The publish step in `deploy.yml` carries a hand-typed list of the files it
+copies to the website. `icons.js` and `firebase.js` were not on it. The
+tests would never have caught that — they run locally, where the files
+exist — but the moment this branch merged, GitHub would have published a
+site whose app crashes on load. The list now carries everything, and a new
+test reads `index.html` and `sw.js` and fails the build if any file the app
+loads is missing from the publish list.
+
+While checking that, the bigger find: the live site has been serving
+`rehoteq-field-v5` — none of this session's work (the payment links, the
+icons, the sign-in layer, any of it) had ever reached `main`, and so none
+of it had ever reached a phone. This version merges the whole body of work.
+
+Files changed: `.github/workflows/deploy.yml`, `tests/run.js`, `sw.js`
+(v16), `README.md`. Tests: **187 checks in ten suites**.
+
+**v1.1.4** — **The assessor's logo is now the app icon.**
+
+The brand artwork arrived the only way that worked — uploaded into the repo
+— and the two app icons are cut straight from the source sheet: 512×512 and
+192×192, exactly as designed, wordmark included.
+
+Cutting them honestly took three tries, and the tests are the reason the
+third one is right: the tile's dark green was invisible to my first colour
+detector, the square-pad filled with black, and a drop shadow under the tile
+kept biasing the crop downward. The final cut is verified pixel-by-pixel —
+zero light pixels on any edge, zero background left outside the rounded
+corners (the corner voids are filled with the tile's own gradient, so no
+launcher mask can ever show a light sliver), and the wrench, swoosh and
+wordmark all intact.
+
+Nine new checks: each icon must be a real PNG at its declared size, match
+what `manifest.webmanifest` promises, and exceed a size floor that the old
+2.8KB/7.9KB stub icons could not pass — so a placeholder can never quietly
+sneak back in.
+
+Files changed: `icon-512.png`, `icon-192.png`, `tests/run.js`, `sw.js` (v15),
+`README.md`. Tests: **185 checks in ten suites**.
+
+**v1.1.3** — **The server half: the trial clock, and a payment that has to be proven.**
+
+`functions/` is new — two Cloud Functions, both doing something the device
+is forbidden from doing.
+
+`createAccount` runs the moment someone first signs in and writes their
+account record with `plan: free` and a 14-day trial that starts then.
+`firestore.rules` forbids the app from creating this record — which is
+exactly what keeps `plan` out of the user's hands. The server is the clock.
+Signing out and back in cannot restart the trial: an existing record is
+left untouched.
+
+`flutterwaveWebhook` takes Flutterwave's payment notification and **verifies
+the transaction against Flutterwave's own API before granting anything** —
+successful status, NGN, at least ₦3,000. A webhook body is a claim, not
+proof; anyone can POST JSON at a public URL. Renewals extend from the
+existing expiry date, so renewing early never costs the customer their
+remaining days. The Flutterwave secret lives in Firebase environment config
+— never in this repo. The test suite fails if `FLWSECK-` appears anywhere in
+the function source; it caught a placeholder in a comment this session,
+which was the comment being wrong and the test being right.
+
+`firebase.json` now points the Firebase CLI at both rules files and the
+functions folder, so one `firebase deploy` takes all three.
+
+**Not yet switched on:** deploying these functions needs the Blaze
+(pay-as-you-go) plan first — it needs a card on file, but at our volume the
+bill is genuinely zero. One step at a time; that's the next conversation.
+
+Tests: **173 checks in ten suites**. Also closed a quiet gap: `icons.js` and
+`firebase.js` were being served to the browser but were missing from the
+scan list — a guard with holes in it is not a guard.
+
+Files changed: `functions/index.js` + `functions/package.json` (new),
+`firebase.json` (new), `tests/run.js`, `FIREBASE_PLAN.md`, `sw.js` (v14),
+`README.md`.
+
+**v1.1.2** — **Sign-in built, and switched off on purpose.**
+
+`firebase.js` is new: the Firebase layer, wrapped so that it is **inert until
+`config.js` says otherwise.** `firebase.enabled` is still `false`, so the app
+today behaves exactly as it did before Firebase existed.
+
+The load-bearing decision is that the SDK is **not** in the service worker's
+precache list. It is fetched the first time someone taps *Sign in* and cached
+on the way past. A technician who never signs in therefore never downloads it
+and never needs the network — offline-native with no account survives the move
+to the cloud. The first sign-in needs a connection, which is fair; every one
+after it does not.
+
+Sign-in uses **redirect, not popup**, because the popup path is unreliable in
+an installed PWA on Android.
+
+Settings → Account now says plainly that **you do not need an account** —
+every job card, report and photo works offline without one, and signing in is
+only for the subscription and, later, a team. Tapping Sign in while the switch
+is off shows a message rather than failing.
+
+Two new tests are worth naming. The domain guard caught `www.gstatic.com` the
+moment it appeared — which is exactly its job — and it is now allow-listed
+deliberately rather than silently. And a test asserts the SDK is **absent**
+from the precache list, because adding it there would quietly undo the whole
+offline-first design.
+
+**v1.1.1** — **Firebase config wired, security rules written.**
+
+The Firebase web config now lives in `config.js` under `firebase`. That block
+is **public by design** — it ships to every browser and Google intends it to.
+It identifies the project; it grants access to nothing.
+
+What actually protects customer data is `firestore.rules` and `storage.rules`,
+both new in this version. They are the whole security model, and they are
+worth reading as a contract rather than boilerplate:
+
+- **You may edit your own profile. You may never edit your own `plan`,
+  `trialEndsAt` or `expiresAt.`** Only the Cloud Function that verified a
+  Flutterwave payment writes those. If the client could set `plan = 'pro'`, we
+  would be straight back to the fake enforcement refused in v1.0.7 — that one
+  line is the difference between a paywall and a suggestion.
+- Job records carry customer names, phones and home addresses, so they are
+  readable only by the owner, the assigned technician, or a company lead.
+- Photos live under `users/{uid}/...` rather than a shared company path, which
+  keeps the storage rules obviously correct instead of clever.
+- Everything ends in default-deny: a new collection is invisible until someone
+  writes a rule for it on purpose.
+
+`firebase.enabled` is **false**. The SDK loader does not exist yet, so the app
+still never fetches Firebase at all and stays fully offline-native.
+
+⚠️ **The rules do nothing until they are deployed.** See
+`FIREBASE_PLAN.md` — console paste, or better, `firebase deploy --only
+firestore:rules,storage:rules` so they live in version control.
+
+**v1.1.0** — **Company bio and the site brief.**
+
+*About your business.* A short bio (two or three lines) in Settings → profile.
+It prints as an **ABOUT US** block on every quotation — the document that has
+to win the next job. It deliberately does *not* print on the service report:
+that is evidence, and a sales paragraph on an evidence document is noise. With
+no bio set, no empty block appears.
+
+*Site instructions.* New field on the job: **what must be done, and how**, set
+by the lead engineer. It stays pinned at the top of the job card so the
+technician is not working from memory, and it prints on the service report
+under **SITE INSTRUCTIONS**, ahead of the findings — so the report reads as
+*here is what I was told to do, here is what I did*.
+
+This is the first half of the staff workflow, and it is the half that needs no
+server: the **instruction** works offline today. The **assignment** — pushing a
+job onto someone else's phone — cannot, and waits for `FIREBASE_PLAN.md`.
+
+Jobs saved before this existed have no `instructions` field at all, so the
+report is built to tolerate its absence rather than throwing.
+
+**v1.0.9** — **Prices live in one place, and the paywall stopped advertising
+a price you cannot pay.**
+
+Toye confirmed the numbers: Pro **₦3,000/month**, **₦30,000/year**, Business
+**₦15,000/month**. They were already right — but confirming them exposed two
+defects next to them.
+
+The paywall showed *"or ₦30,000 / year — 2 months free"* under the headline
+price while there was no annual payment link, so **the app was advertising a
+price with no way to buy it** — the same lie the old *"Start 14-day free
+trial"* was. The annual line now appears only when an annual link exists.
+Send the link and it lights up on its own; no code change.
+
+Nine prices were also typed directly onto buttons and into views. That is
+precisely how **₦4,000 outlived its own price change** — the figure was right
+in `data.js` and stale everywhere it had been written a second time. Every
+price on screen now reads from `DATA.PLANS`, and the *"2 months free"* saving
+is calculated from the two prices rather than typed in, so it cannot claim
+two months after the numbers have moved. A test fails if a ₦ figure ever
+appears hardcoded in `app.js` again.
+
+**v1.0.8** — **Real payment links, both WhatsApp lines, and icons instead of
+emoji.**
+
+*Money.* The Pro and Business buttons now open the actual Flutterwave payment
+pages, configured in `config.js` (`payments.proMonthlyUrl`, `proAnnualUrl`,
+`businessUrl`). A button is rendered only when its link is set, so there is
+never a payment button with nowhere to go; with no links at all it falls back
+to a WhatsApp subscribe route. The ₦30,000/year link has not been supplied, so
+the annual button simply is not drawn rather than being drawn broken.
+
+*People.* Both REHOTEQ lines — 0703 630 2585 and 0816 651 9177 — are in
+`config.js`, and every WhatsApp route builds its link through `CONFIG.waUrl()`.
+The share sheet now aims at the **customer's** number when the job card has one
+(`CONFIG.waNumber()` normalises `0803 000 0000` into the international form
+`wa.me` needs); the passport page still aims at REHOTEQ, because a member of
+the public must never be left guessing who to message.
+
+*Icons.* The interface was drawn with 112 emoji across 53 glyphs. Emoji render
+differently on every device — the app looked different on a Tecno than on an
+iPhone — and their colour cannot be set, which is exactly what a selected tab
+needs to do. They are replaced by inline SVG from **Lucide** (ISC licence,
+commercial use permitted), one 24×24 grid, one 2px stroke, `currentColor`, so
+the icons are consistent by construction and inherit the tab's colour.
+`icons.js` is generated once by `npm run icons` and committed, so there is
+still **no build step and no dependency at runtime**. One icon is ours:
+`solar-panel`, because Lucide has only a generic sun, and a sun reads as
+*weather* rather than *solar* — a real difference when a technician is picking
+a trade in a hurry.
+
+⚠️ **A Flutterwave secret key must never enter this repository.** Payment
+*links* are safe to publish; a `sk_live_` key is not. See the warning in
+`config.js`, and the test that fails if one appears in any shipped file.
+
+**v1.0.7** — **Pro is now ₦3,000 / month, ₦30,000 / year** (was ₦4,000 /
+₦40,000). Changed in one place — `PLANS` in `data.js` — then traced through the
+paywall, the spec and the prototype, because a price that disagrees between the
+screen and the docs is a support ticket you cannot win.
+
+The paywall also stopped lying. It used to say *"Start 14-day free trial"*,
+*"No card required"* and *"Paystack & Flutterwave"* while there was no trial
+timer, no payment provider, and a Settings toggle that granted Pro for free.
+It now shows the real price and routes to a **Flutterwave payment link** once
+one is configured in `config.js` (`payments.proMonthlyUrl` /
+`payments.proAnnualUrl`). Until then it offers a WhatsApp subscribe route —
+**the paywall never renders a payment button that has nowhere to go**, which is
+the same rule that produced the wiring audit.
+
+⚠️ **A Flutterwave secret key must never enter this repository.** It is a
+static site; every visitor can read the source. Only a public key (`pk_live_…`)
+or a plain payment-link URL belongs in client code. There is now a test that
+fails the build if anything matching `sk_live_…` / `sk_test_…` /
+`FLWSECK-…` appears in a shipped file. Cache → v8.
+
+**v1.0.6** — **Every document now looks like it came from a real company.**
+Upload your logo in *Settings → Edit profile* and it is letterboxed onto the
+masthead of every service report and quotation — the PDF engine already
+embedded JPEGs for photographs, so this is the same code path. Added the
+fields the masthead was already trying to print but Settings never asked for:
+business address, email, and bank details (`report.js` has been reading
+`profile.address` since v1.0.0 and it was always blank).
+
+**Amounts now print as ₦28,000.00, not NGN 28,000.00.** The naira sign is
+absent from WinAnsiEncoding, so `pdf.js` draws it: a Helvetica-proportioned N
+with the two crossbars, as vector paths. Verified by rendering the output and
+measuring it — the glyph tops out at 256.3pt where the figures it sits beside
+top out at 256.3pt. **This surfaced a real bug:** `sanitize()` was stripping ₦
+before `width()` could measure it, so every amount containing a naira sign was
+measured ~12% short and the total overflowed the right margin. Fixed, and
+covered by a new branding suite (52 checks). Cache → v7.
+
+**v1.0.5** — **Fixed: the app was making three claims it could not support.**
+Every service report PDF was stamped *"VERIFIED EVIDENCE — This report is
+tamper-evident"* above a `field.rehoteq.com/v/<ref>` link. V1 has no backend:
+that link lands on a static page that cannot verify anything. The photos screen
+told technicians their photos were *"hash-chained"* — they are not. `job.hashes`
+is a list of independent per-photo SHA-256 digests with no linkage between them,
+and only the first was ever printed, so the second and third photographs were
+not represented in the fingerprint at all. Both wordings now say only what is
+true: who signed, when, how many photographs carry a stamp, and the reference.
+Real third-party verification is a Phase-3 item — see `PRO_FEASIBILITY.md`.
+Also corrected the test count in this file (43 checks, not 59). Cache → v6.
 
 **v1.0.4** — **Fixed: every printed link pointed at `rehoteq.ng`, a domain
 nobody owns.** Four hardcoded references — including the QR code glued to a

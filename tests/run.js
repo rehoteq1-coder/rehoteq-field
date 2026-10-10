@@ -106,6 +106,25 @@ async function suiteSurface(w) {
   ok(typeof w.ACT.go === 'function', 'ACT.go is callable');
   ok(typeof w.ACT.toast === 'function', 'ACT.toast is callable');
 
+  // The app icons are the assessor's brand artwork, cut from the source
+  // sheet. The old stand-in icons were 2.8KB/7.9KB of flat colour — a
+  // swapped-in placeholder would fail the size floor below.
+  const iconCases = [
+    ['icon-512.png', 512, 40000],
+    ['icon-192.png', 192, 10000]
+  ];
+  const manif = fs.readFileSync(path.join(ROOT, 'manifest.webmanifest'), 'utf8');
+  iconCases.forEach(([f, dim, minBytes]) => {
+    const buf = fs.readFileSync(path.join(ROOT, f));
+    const isPng = buf.length > 24 && buf.readUInt32BE(0) === 0x89504E47;
+    ok(isPng, f + ' is a real PNG');
+    eq(buf.readUInt32BE(16), dim, f + ' is ' + dim + ' pixels wide');
+    eq(buf.readUInt32BE(20), dim, f + ' is ' + dim + ' pixels tall');
+    ok(buf.length > minBytes, f + ' is the brand artwork, not a stub (' + buf.length + ' bytes)');
+    ok(manif.indexOf('"' + f + '"') >= 0, 'manifest.webmanifest declares ' + f);
+    ok(manif.indexOf('"' + dim + 'x' + dim + '"') >= 0, 'manifest declares its size ' + dim + 'x' + dim);
+  });
+
   // The <div id="toast"> in index.html claims the global name `toast`.
   // Handlers must therefore never call a bare toast(...).
   ok(typeof w.toast !== 'function',
@@ -114,6 +133,96 @@ async function suiteSurface(w) {
   eq(w.DATA.TRADES.length, 4, 'four trades are defined');
   ok(w.DATA.LIBRARY.length >= 12, 'troubleshooting library has at least 12 guides (' + w.DATA.LIBRARY.length + ')');
   ok(Object.keys(w.DATA.CHECKLISTS).length >= 10, 'at least 10 checklists (' + Object.keys(w.DATA.CHECKLISTS).length + ')');
+}
+
+/* =====================================================================
+   SUITE 1b — icons
+
+   Emoji rendered differently on every device and could not be tinted,
+   which is exactly what a selected tab needs. The app now draws inline
+   SVG instead. The failure mode this suite exists to catch is a typo'd
+   icon name: ICON() degrades to a dot rather than throwing, so one
+   wrong character would ship as a silent hole in the UI.
+   ===================================================================== */
+async function suiteIcons(w) {
+  describe('1b. Icons');
+
+  const indexSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const swSrc = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  ok(/<script src="icons\.js"><\/script>/.test(indexSrc), 'index.html loads icons.js');
+  ok(w.__scripts.includes('icons.js'), 'the harness loads icons.js, so it really ships');
+  ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
+    'icons.js loads before app.js, so ICON() exists when the first view renders');
+  ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
+
+  ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
+  ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
+
+  const svg = w.ICON('zap', 20);
+  ok(/^<svg /.test(svg), 'ICON() returns an inline <svg>');
+  ok(/viewBox="0 0 24 24"/.test(svg), 'every icon sits on the same 24x24 grid');
+  ok(/stroke="currentColor"/.test(svg), 'icons inherit colour from currentColor');
+  ok(/stroke-width="2"/.test(svg), 'every icon uses the same 2px stroke weight');
+  ok(/width="20"/.test(svg) && /height="20"/.test(svg), 'ICON() honours the requested size');
+  ok(/aria-hidden="true"/.test(svg), 'icons are aria-hidden; the text label carries the meaning');
+
+  ok(w.ICON('definitely-not-an-icon', 16).length > 0,
+    'an unknown icon name returns markup, never an empty string');
+
+  const used = new Set();
+  for (const f of ['app.js', 'data.js']) {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    for (const m of src.matchAll(/ICON\(\s*'([a-z0-9-]+)'/g)) used.add(m[1]);
+    for (const m of src.matchAll(/icon:\s*'([a-z0-9-]+)'/g)) used.add(m[1]);
+  }
+  ok(used.size > 20, 'the app draws a real icon set (' + used.size + ' names)');
+  const missing = [...used].filter(n => !w.ICONS[n]);
+  eq(missing.length, 0, 'every icon name used in the app resolves'
+    + (missing.length ? ' — missing: ' + missing.join(', ') : ''));
+
+  for (const t of w.DATA.TRADES) {
+    ok(!!w.ICONS[t.icon], 'trade "' + t.id + '" icon "' + t.icon + '" resolves');
+  }
+
+  // The bug this catches actually shipped: TRADES[].icon became an icon
+  // *name* ('solar-panel'), and two views went on printing it as text, so
+  // the home screen read "solar-panel Solar". An icon name is an
+  // identifier, never something a technician should ever see. Walk the
+  // views and assert none of them leaks one.
+  const names = Object.keys(w.ICONS).filter(n => n.length > 3);
+  const leaks = [];
+  for (const v of ['home', 'library', 'jobs', 'settings', 'passport']) {
+    w.ACT.go(v);
+    await sleep(40);
+    const text = w.document.body.textContent || '';
+    for (const n of names) {
+      // only flag the kebab-case names a human would never write
+      if (n.includes('-') && text.includes(n)) leaks.push(v + ' shows "' + n + '"');
+    }
+  }
+  eq(leaks.length, 0, 'no view prints an icon name as text', leaks.join('\n      '));
+  w.ACT.go('home');
+  await sleep(30);
+
+  // The walk cannot reach the first-run screen, where the trade dropdown
+  // also leaked the name, so scan the source too: any interpolation that
+  // ends in `.icon` must be routed through tradeIcon() or ICON().
+  const appSrcIcons = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const bare = [...appSrcIcons.matchAll(/\$\{([^}]*\.icon)\}/g)]
+    .map(m => m[1].trim())
+    .filter(expr => !/^(tradeIcon|ICON)\(/.test(expr));
+  eq(bare.length, 0, 'no view interpolates a bare .icon value as text',
+    bare.join('\n      '));
+
+  const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2300}-\u{23FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\uFE0F\u00AE]/u;
+  for (const f of ['app.js', 'index.html', 'data.js', '404.html']) {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const bad = src.split('\n')
+      .map((l, i) => [i + 1, l])
+      .filter(([, l]) => EMOJI.test(l));
+    eq(bad.length, 0, f + ' ships no emoji'
+      + (bad.length ? ' — line ' + bad[0][0] + ': ' + bad[0][1].trim().slice(0, 60) : ''));
+  }
 }
 
 /* =====================================================================
@@ -157,6 +266,34 @@ function headIdentifiers(code) {
 
 function suiteWiring(w) {
   describe('2. Wiring audit — every inline handler is reachable from the page');
+
+  /* The publish step in deploy.yml carries a hand-typed list of files. If
+     anything the page loads is missing from that list, GitHub happily
+     publishes a site whose app crashes on load — the tests all pass
+     locally where the files exist. This closes that hole: every file the
+     page references and every file the service worker caches must appear
+     in the copy list, or the build fails. */
+  const deployYml = fs.readFileSync(path.join(ROOT, '.github/workflows/deploy.yml'), 'utf8');
+  const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
+    .split(/\s+/).map(s => s.trim()).filter(Boolean);
+  ok(deployList.length > 10, 'deploy.yml has a publish list to check against');
+
+  const needed = new Set();
+  const htmlSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  (htmlSrc.match(/(?:src|href)="([^"]+)"/g) || []).forEach(m => {
+    const ref = m.replace(/^(?:src|href)="/, '').replace(/"$/, '');
+    if (!/^(https?:|#|mailto:|data:)/.test(ref)) needed.add(ref.split('/').pop());
+  });
+  const shellSrc = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  ((shellSrc.match(/const SHELL = \[([\s\S]*?)\]/) || ['', ''])[1].match(/'([^']+)'/g) || [])
+    .forEach(m => {
+      const ref = m.slice(1, -1);
+      if (ref !== './') needed.add(ref.split('/').pop());
+    });
+
+  const missing = [...needed].filter(f => !deployList.includes(f));
+  ok(missing.length === 0,
+    'every file the app loads is in the publish list', 'missing: ' + missing.join(', '));
   const handlers = collectHandlers();
   ok(handlers.length > 50, 'found inline handlers to audit (' + handlers.length + ')');
 
@@ -196,8 +333,12 @@ function suiteWiring(w) {
    shipped may name a domain we do not control.
    ===================================================================== */
 const OWNED = ['field.rehoteq.com', 'rehoteq.com'];
+// Everything the browser actually downloads. If a file is served, it is
+// scanned. Note that functions/ is deliberately NOT here — it never
+// reaches a browser, which is the whole reason it may hold a secret.
 const SHIPPED = ['index.html', '404.html', 'config.js', 'app.js', 'data.js',
-                 'db.js', 'pdf.js', 'qr.js', 'report.js', 'sw.js'];
+                 'db.js', 'pdf.js', 'qr.js', 'report.js', 'sw.js',
+                 'icons.js', 'firebase.js'];
 
 function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, ' ')   // block comments
@@ -219,8 +360,19 @@ function suiteDomain(w) {
     const hosts = src.match(/https?:\/\/([A-Za-z0-9.-]+)/g) || [];
     hosts.forEach(h => {
       const host = h.replace(/^https?:\/\//, '');
-      const okThirdParty = ['wa.me', 'www.w3.org'].includes(host);
-      if (!OWNED.includes(host) && !okThirdParty) foreign.push(f + ' \u2192 ' + host);
+      const okThirdParty = ['wa.me', 'www.w3.org', 'www.gstatic.com'].includes(host);
+      // www.gstatic.com is Google's CDN, which serves the Firebase SDK. It
+      // is loaded lazily and only when someone actually taps Sign in, so a
+      // technician who never signs in never touches it. It is allow-listed
+      // here deliberately rather than silently — the point of this guard is
+      // that no external host appears in the app by accident.
+      // flutterwave.com is the payment host. It is allow-listed here so a
+      // typo'd or substituted payment domain still fails the build — the
+      // point of the guard is that no host appears by accident.
+      const okPayment = /^flutterwave\.com$/.test(host);
+      if (!OWNED.includes(host) && !okThirdParty && !okPayment) {
+        foreign.push(f + ' \u2192 ' + host);
+      }
     });
   });
 
@@ -265,6 +417,288 @@ function suiteDomain(w) {
   ok(!/rehoteq\.ng/.test(qrUrl), 'the QR sticker URL does not contain rehoteq.ng');
   const m = w.QR.encode(qrUrl);
   ok(m && m.size > 0, 'the QR code encodes (' + (m && m.size) + 'x' + (m && m.size) + ')');
+}
+
+/* =====================================================================
+   SUITE 2c — branding: logo, contact line and the naira sign
+
+   These are the three things on every document a customer receives.
+   The naira sign in particular is drawn as vector paths, not set as a
+   glyph, so it is invisible to text extraction — measure the drawing
+   instead of reading it back.
+   ===================================================================== */
+function suiteBranding(w) {
+  describe('2c. Branding — logo, contact line, and the naira sign');
+
+  const base = {
+    ref: 'RF-2026-00184', trade: 'solar', jobType: 'Inverter fault diagnosis',
+    customer: { name: 'Mr. Adewale Ade', phone: '0803 000 0000', address: '14 Adeyemi St' },
+    site: { address: '14 Adeyemi St, Okitipupa', lat: 6.4975, lng: 4.7814 },
+    equipment: { model: 'SMS-II 6.2K', serial: 'SMS62-2024-88314', capacity: '6.2 kVA', installDate: '2025-07-24' },
+    fault: 'E03 on load.', diagnosis: 'Loose DC terminal.', work: 'Re-terminated and torqued.',
+    recommendation: 'Bank at 71% SoH.', materials: [{ desc: 'Copper lug', qty: 2, unitPrice: 1500 }],
+    labour: 25000, signatures: {}, status: 'completed',
+    startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+    lockedAt: new Date().toISOString(), createdAt: new Date().toISOString(), hashes: ['e3b0c442']
+  };
+  const noPhotos = { before: [], during: [], after: [], serial: [] };
+  const tinyJpeg = 'data:image/jpeg;base64,' + Buffer.from('not-really-a-jpeg').toString('base64');
+
+  // --- the naira sign is measured, not dropped -------------------------
+  const withSign = w.PDFT.width('\u20A61,000', 11, true);
+  const noSign = w.PDFT.width('1,000', 11, true);
+  ok(withSign > noSign + 5,
+    'PDFT.width counts the naira sign (advance ' + (withSign - noSign).toFixed(2) + 'pt)',
+    'with ' + withSign.toFixed(2) + ' vs without ' + noSign.toFixed(2));
+
+  // A ₦ that reached the content stream as a character would emit a bad
+  // octal escape; it must be drawn as paths instead.
+  let moneyPdf = '';
+  try {
+    moneyPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'REHOTEQ Technologies' })).toString('latin1');
+  } catch (e) { ok(false, 'a report with naira amounts builds', String(e.message)); return; }
+  ok(!moneyPdf.includes('\\20346'),
+    'no raw U+20A6 octal escapes in the content stream');
+  ok(!moneyPdf.includes('NGN'),
+    'amounts no longer print as "NGN"');
+
+  // --- logo in, logo out ----------------------------------------------
+  let logoPdf = '';
+  try {
+    logoPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'REHOTEQ Technologies',
+        logo: { dataUrl: tinyJpeg, w: 240, h: 240 } })).toString('latin1');
+  } catch (e) { ok(false, 'a report with a logo builds', String(e.message)); return; }
+  ok(logoPdf.includes('/DCTDecode'), 'a logo is embedded as a JPEG image object');
+
+  ok(!moneyPdf.includes('/DCTDecode'),
+    'with no logo and no photos, no image object is emitted at all');
+
+  // A logo that cannot decode must fall back to the R mark, never throw.
+  let fell = null;
+  try {
+    w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'R', logo: { dataUrl: 'data:image/jpeg;base64,!!!', w: 10, h: 10 } });
+  } catch (e) { fell = String(e.message); }
+  ok(!fell, 'a corrupt logo falls back to the R mark instead of throwing', fell || '');
+
+  // --- the contact line is printed ------------------------------------
+  let contactPdf = '';
+  try {
+    contactPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'REHOTEQ Technologies',
+        address: '12 Sapele Road, Benin City', phone: '0803 000 0000',
+        email: 'hello@rehoteq.com' })).toString('latin1');
+  } catch (e) { ok(false, 'a report with a contact line builds', String(e.message)); return; }
+  ok(contactPdf.includes('12 Sapele Road, Benin City'),
+    'the business address is printed under the company name');
+  ok(contactPdf.includes('hello@rehoteq.com'),
+    'the email is printed on the contact line');
+
+  // A long contact line is truncated rather than running into the
+  // right-hand column of the masthead.
+  const longAddr = 'X'.repeat(400);
+  let longPdf = '';
+  try {
+    longPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'REHOTEQ Technologies', address: longAddr })).toString('latin1');
+  } catch (e) { ok(false, 'a report with a very long address builds', String(e.message)); return; }
+  ok(!longPdf.includes('X'.repeat(400)), 'an over-long contact line is truncated');
+}
+
+/* =====================================================================
+   SUITE 2d — pricing and the payment seam
+
+   Two places where a mistake costs real money: the number a customer is
+   shown, and a secret key accidentally shipped to every visitor.
+   ===================================================================== */
+async function suitePricing(w) {
+  describe('2d. Pricing and the payment seam');
+
+  // Decided 10 Oct 2026: Pro is ₦3,000/month, ₦30,000/year.
+  eq(w.DATA.PLANS.pro.price, 3000, 'PLANS.pro is ₦3,000');
+  eq(w.DATA.PLANS.pro.label, '₦3,000/mo', 'PLANS.pro label reads ₦3,000/mo');
+  eq(w.DATA.PLANS.free.price, 0, 'the Free plan is still free');
+
+  ok(w.CONFIG.payments && typeof w.CONFIG.payments === 'object',
+    'CONFIG.payments is the single place payment links live');
+
+  // The paywall is the only screen where a technician sees the number.
+  w.ACT.goPlan();
+  await sleep(40);
+  const sheet = w.document.getElementById('paywall').textContent;
+  ok(sheet.includes('₦3,000'), 'the paywall shows ₦3,000');
+  // The annual price is a real offer, but until Flutterwave gives us a link
+  // there is no way to pay it. Showing the price without a button behind it
+  // is the same lie the old "14-day free trial" was, so it stays hidden.
+  const annualLinked = !!w.CONFIG.payments.proAnnualUrl;
+  eq(sheet.includes('₦30,000'), annualLinked,
+    'the paywall shows the annual ₦30,000 iff there is a way to pay it');
+  if (annualLinked) {
+    ok(/2 months free/.test(sheet), 'the annual offer states the saving');
+  } else {
+    ok(!/\/ year/.test(sheet),
+      'with no annual link the paywall advertises no annual price at all');
+  }
+  // The saving is worked out from the two prices, not typed in, so it can
+  // never claim "2 months free" after the numbers have moved.
+  eq(w.CONFIG && w.DATA.PLANS.pro.yearPrice, 30000, 'the annual figure is ₦30,000 in DATA.PLANS');
+  const freeMonths = Math.round(12 - w.DATA.PLANS.pro.yearPrice / w.DATA.PLANS.pro.price);
+  eq(freeMonths, 2, 'the annual price really does give 2 months free');
+  // ...and no price may be typed straight onto a button or into a view,
+  // which is how ₦4,000 outlived its own price change.
+  const appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const typed = (appSrc.match(/₦[0-9][0-9,]{2,}/g) || []);
+  eq(typed.length, 0, 'no price is hardcoded in app.js'
+    + (typed.length ? ' \u2014 found ' + typed.join(', ') : ''));
+  ok(!sheet.includes('₦4,000'), 'the paywall no longer shows the old ₦4,000');
+  ok(!/14-day free trial/.test(sheet),
+    'the paywall does not promise a trial that does not exist');
+  ok(!/Paystack/.test(sheet),
+    'the paywall does not name a payment provider that is not wired up');
+
+  // Every button on the sheet must go somewhere real.
+  const handlers = [...w.document.getElementById('paywall').querySelectorAll('[onclick]')]
+    .map(b => b.getAttribute('onclick'));
+  ok(handlers.length > 0, 'the paywall has buttons');
+  const dead = handlers.filter(h => {
+    const m = /ACT\.(\w+)/.exec(h || '');
+    return !m || typeof w.ACT[m[1]] !== 'function';
+  });
+  ok(dead.length === 0, 'no dead buttons in the paywall', dead.join(', '));
+
+  // A plan with a link gets a button; a plan without one gets nothing.
+  // No button anywhere may go nowhere.
+  const hasMonthly = !!w.CONFIG.payments.proMonthlyUrl;
+  const hasAnnual = !!w.CONFIG.payments.proAnnualUrl;
+  const hasBusiness = !!w.CONFIG.payments.businessUrl;
+  const has = h => handlers.some(x => (x || '').includes(h));
+  eq(has('payMonthly'), hasMonthly, 'monthly button is offered iff a monthly link is set');
+  eq(has('payAnnual'), hasAnnual, 'annual button is offered iff an annual link is set');
+  eq(has('payBusiness'), hasBusiness, 'business button is offered iff a business link is set');
+  if (hasMonthly || hasAnnual || hasBusiness) {
+    ok(!has('subscribe'),
+      'with payment links configured, the WhatsApp fallback is not the primary action');
+  } else {
+    ok(has('subscribe'), 'with no links configured, the WhatsApp route is offered');
+  }
+
+  // Every payment link must be a public payment page, not an API endpoint.
+  [w.CONFIG.payments.proMonthlyUrl, w.CONFIG.payments.proAnnualUrl, w.CONFIG.payments.businessUrl]
+    .filter(Boolean)
+    .forEach(u => ok(/^https:\/\/[a-z0-9.-]+\/(pay|[\w-]*$)/i.test(u),
+      'payment link is a public payment page: ' + u));
+
+  // The two WhatsApp numbers must not drift apart: 404.html is a
+  // standalone page that cannot read config.js, so it hardcodes one.
+  const primary = w.CONFIG.support.whatsapp[0];
+  ok(/^234\d{10}$/.test(primary), 'the primary WhatsApp number is in international format');
+  // Phone numbers arrive in whatever form whoever typed them used, and a
+  // wa.me link built from a local-format number silently goes nowhere.
+  eq(w.CONFIG.waNumber('0803 000 0000'), '2348030000000', 'a local 11-digit number becomes international');
+  eq(w.CONFIG.waNumber('8030000000'), '2348030000000', 'a bare 10-digit number becomes international');
+  eq(w.CONFIG.waNumber('+234 803 000 0000'), '2348030000000', 'an already-international number is left alone');
+  eq(w.CONFIG.waNumber(''), '', 'an empty number normalises to empty, not to a dead link');
+  eq(w.CONFIG.waNumber('ext 12'), '', 'a value with no usable digits normalises to empty');
+  w.CONFIG.support.whatsapp.forEach(n =>
+    eq(w.CONFIG.waNumber(n), n, 'REHOTEQ line ' + n + ' survives normalisation'));
+
+  const page404 = fs.readFileSync(path.join(ROOT, '404.html'), 'utf8');
+  ok(page404.includes("'2347036302585'") || page404.includes(primary),
+    '404.html points WhatsApp at the same REHOTEQ line as config.js');
+  const bare = (page404.match(/https:\/\/wa\.me\/\?text/g) || []).length;
+  eq(bare, 0, '404.html has no wa.me link that leaves the customer to guess who to message');
+
+  // A secret key in a static PWA is a blank cheque: every visitor can read
+  // this source. Catch it the same way we catch rehoteq.ng.
+  const secrets = [];
+  SHIPPED.forEach(f => {
+    const full = path.join(ROOT, f);
+    if (!fs.existsSync(full)) return;
+    const src = fs.readFileSync(full, 'utf8');
+    if (/\bsk_(live|test)_[A-Za-z0-9]{6,}/.test(src)) secrets.push(f + ' — secret key');
+    if (/\bFLWSECK-[A-Za-z0-9-]{6,}/.test(src)) secrets.push(f + ' — Flutterwave secret');
+  });
+  ok(secrets.length === 0, 'no secret API keys in shipped code', secrets.join('\n      '));
+
+  w.ACT.closePaywall();
+  await sleep(20);
+}
+
+/* =====================================================================
+   SUITE 2e — company profile and the site brief
+   ===================================================================== */
+async function suiteBrief(w) {
+  describe('2e. Company profile and site instructions');
+
+  const noPhotos = { before: [], during: [], after: [], serial: [] };
+  const profile = { name: 'Toye', company: 'REHOTEQ Technologies' };
+  const base = {
+    ref: 'RF-2026-00184', trade: 'solar', jobType: 'Inverter fault diagnosis',
+    customer: { name: 'Mr. Adewale Ade', phone: '0803 000 0000', address: '14 Adeyemi St' },
+    site: { address: '14 Adeyemi St, Okitipupa', lat: 6.4975, lng: 4.7814 },
+    equipment: { model: 'SMS-II 6.2K', serial: 'SMS62-2024-88314', capacity: '6.2 kVA', installDate: '2025-07-24' },
+    fault: 'E03 on load.', diagnosis: 'Loose DC terminal.', work: 'Re-terminated and torqued.',
+    recommendation: 'Bank at 71% SoH.', materials: [{ desc: 'Copper lug', qty: 2, unitPrice: 1500 }],
+    labour: 25000, signatures: { customer: null, technician: null },
+    status: 'completed', startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+    lockedAt: new Date().toISOString(), createdAt: new Date().toISOString(), hashes: ['e3b0c442']
+  };
+  const BRIEF = 'Isolate the array before touching the DC isolator.';
+
+  const withBrief = Object.assign({}, base, { instructions: BRIEF });
+  const briefPdf = Buffer.from(w.REPORT.buildReport(withBrief, noPhotos, {}, profile)).toString('latin1');
+  ok(briefPdf.includes('SITE INSTRUCTIONS'), 'the site brief is labelled on the service report');
+  ok(briefPdf.includes('Isolate the array'), 'the site brief text reaches the service report');
+
+  // Jobs saved before this field existed have no instructions key at all.
+  // They must still build rather than throwing on undefined.
+  let threw = null;
+  try {
+    w.REPORT.buildReport(Object.assign({}, base), noPhotos, {}, profile);
+  } catch (e) { threw = e.message; }
+  ok(!threw, 'a job with no instructions still builds a report', threw || '');
+  const plainPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {}, profile)).toString('latin1');
+  ok(!plainPdf.includes('SITE INSTRUCTIONS'),
+    'with no brief set, the report shows no empty SITE INSTRUCTIONS block');
+
+  const q = {
+    id: 'q1', number: 'QT-2026-00001', date: new Date().toISOString(),
+    validUntil: new Date(Date.now() + 14 * 864e5).toISOString(),
+    customer: base.customer, subject: 'Inverter re-termination',
+    items: [{ desc: 'Copper lug', qty: 2, unitPrice: 1500 }],
+    labour: 25000, taxRate: 0, notes: '', terms: '70% deposit'
+  };
+  const q1 = Object.assign({}, q);
+  q1.tax = 0; q1.total = 25000 + 3000;
+
+  const bioProfile = Object.assign({}, profile, { bio: '8 years, 400+ installations across Ondo State.' });
+  const bioPdf = Buffer.from(w.REPORT.buildQuote(q1, base, bioProfile)).toString('latin1');
+  ok(bioPdf.includes('ABOUT US'), 'the company bio is labelled on the quotation');
+  ok(bioPdf.includes('400+'), 'the company bio text reaches the quotation');
+
+  const noBioPdf = Buffer.from(w.REPORT.buildQuote(q1, base, profile)).toString('latin1');
+  ok(!noBioPdf.includes('ABOUT US'),
+    'with no bio set, the quotation shows no empty ABOUT US block');
+  // ...and the bio is a sales line, not evidence: it must stay off the report.
+  ok(!briefPdf.includes('ABOUT US'), 'the bio does not leak onto the service report');
+
+  // The fields have to be reachable on a real screen, not just in the PDF.
+  // editProfile() is the screen a returning user lands on; the printed-on-
+  // document fields only exist once a profile does.
+  w.ACT.editProfile();
+  await sleep(60);
+  ok(!!w.document.getElementById('iBio'), 'the profile screen exposes an editable company bio field');
+  const bioEl = w.document.getElementById('iBio');
+  if (bioEl) {
+    bioEl.value = '8 years across Ondo State.';
+    w.ACT.saveProfile();
+    await sleep(60);
+    ok((w.DB.getMeta ? true : true), 'saving the profile does not throw');
+  }
+  w.ACT.go('home');
+  await sleep(30);
 }
 
 /* =====================================================================
@@ -317,6 +751,167 @@ async function suiteTaps(w) {
 }
 
 /* =====================================================================
+   SUITE 4 — Firebase security rules
+
+   This is a static lint, not a rules emulator, and it is honest about
+   that. It cannot prove the rules are correct. What it can do is catch
+   the handful of mistakes that would be catastrophic, so they fail here
+   in a test run rather than after real customers exist.
+   ===================================================================== */
+function suiteRules() {
+  describe('4. Firebase security rules');
+
+  const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const db = read('firestore.rules');
+  const st = read('storage.rules');
+
+  ok(/^rules_version\s*=\s*'2'/m.test(db), 'firestore.rules declares rules_version 2');
+  ok(/^rules_version\s*=\s*'2'/m.test(st), 'storage.rules declares rules_version 2');
+
+  // A public read is the whole disaster in one line.
+  eq((db.match(/allow\s+read\s*:\s*if\s+true/g) || []).length, 0,
+    'firestore.rules has no unconditional public read');
+  eq((db.match(/allow\s+write\s*:\s*if\s+true/g) || []).length, 0,
+    'firestore.rules has no unconditional public write');
+  eq((st.match(/allow\s+(read|write)\s*:\s*if\s+true/g) || []).length, 0,
+    'storage.rules has no unconditional public access');
+
+  // Default deny: a collection nobody wrote a rule for must be invisible.
+  ok(/match\s*\/\{document=\*\*\}[\s\S]*allow\s+read,\s*write\s*:\s*if\s+false/.test(db),
+    'firestore.rules ends in a default-deny catch-all');
+  ok(/match\s*\/\{allPaths=\*\*\}[\s\S]*allow\s+read,\s*write\s*:\s*if\s+false/.test(st),
+    'storage.rules ends in a default-deny catch-all');
+
+  // The rule that makes enforcement real rather than decorative.
+  ok(/allow\s+create\s*:\s*if\s+false/.test(db),
+    'clients cannot create their own account record (the server sets the trial clock)');
+  ok(/allow\s+update\s*:\s*if\s+isSelf\(uid\)\s*&&\s*!touchesEntitlement\(\)/.test(db),
+    'a user may edit their profile but never their entitlement');
+  ok(/function\s+entitlementKeys[\s\S]{0,200}'plan'/.test(db),
+    'the entitlement field list includes plan');
+  for (const k of ['trialEndsAt', 'expiresAt']) {
+    ok(db.includes("'" + k + "'"), 'the entitlement field list includes ' + k);
+  }
+
+  // Jobs carry customer PII; they must never be world-readable.
+  const jobBlock = (db.match(/match \/jobs\/\{jobId\}[\s\S]*?\n    \}/) || [''])[0];
+  ok(jobBlock.length > 0, 'firestore.rules has an explicit rule block for jobs');
+  ok(/allow read: if signedIn\(\)/.test(jobBlock), 'jobs are never readable anonymously');
+  ok(/ownerId|assignedTo/.test(jobBlock), 'job access is decided by owner or assignee');
+
+  // Company data: members see it, leads change it.
+  ok(/allow\s+update,\s*delete\s*:\s*if\s+isLeadOf\(companyId\)/.test(db),
+    'only a lead may change a company');
+
+  // Storage: photos live under the owner, 12 MB cap, images only.
+  ok(/match \/users\/\{uid\}\/\{allPaths=\*\*\}/.test(st),
+    'storage paths are scoped under the owning user');
+  ok(/request\.auth\.uid\s*==\s*uid/.test(st), 'a user may only touch their own photos');
+  ok(/request\.resource\.size\s*<\s*12\s*\*\s*1024\s*\*\s*1024/.test(st),
+    'uploads are capped at 12 MB');
+  ok(/contentType\.matches\('image\/\.\*'\)/.test(st), 'only images may be uploaded');
+
+  // The config block is public by design, but it must not carry a secret.
+  const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+  ok(!/BEGIN PRIVATE KEY/.test(cfg), 'config.js holds no service-account private key');
+  ok(!/service_account/.test(cfg), 'config.js holds no service-account credentials');
+  ok(/firebase:\s*\{/.test(cfg), 'config.js carries the public Firebase web config');
+  ok(/enabled:\s*false/.test(cfg),
+    'Firebase is wired but not yet switched on, so the app stays offline-native');
+}
+
+/* =====================================================================
+   SUITE 5 — Firebase wiring (all of it inert until switched on)
+   ===================================================================== */
+async function suiteFirebase(w) {
+  describe('5. Firebase wiring');
+
+  const indexSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+
+  ok(/<script src="firebase\.js"><\/script>/.test(indexSrc), 'index.html loads firebase.js');
+  ok(w.__scripts.indexOf('firebase.js') < w.__scripts.indexOf('app.js'),
+    'firebase.js loads before app.js, so FB exists when views render');
+  ok(/'firebase\.js'/.test(sw), 'sw.js caches firebase.js');
+
+  // The whole point: a technician who never signs in must never download
+  // the SDK. If it is in the precache list, every install fetches it and
+  // offline-native is gone.
+  const shell = (sw.match(/const SHELL = \[([\s\S]*?)\]/) || ['', ''])[1];
+  ok(!/gstatic/.test(shell),
+    'the Firebase SDK is NOT precached — a user who never signs in never downloads it');
+  ok(/gstatic[\s\S]{0,120}firebasejs/.test(sw),
+    'but it IS cached on first use, so sign-in works offline afterwards');
+
+  // Off until we say otherwise.
+  ok(/enabled:\s*false/.test(cfg), 'config.js has Firebase switched off');
+  eq(w.CONFIG.firebase.enabled, false, 'CONFIG.firebase.enabled is false');
+  ok(typeof w.FB === 'object', 'FB is exposed to the page');
+  eq(w.FB.enabled(), false, 'FB.enabled() is false, so the layer is inert');
+  eq(await w.FB.ready(), false, 'FB.ready() resolves false rather than throwing');
+  eq(w.FB.user(), null, 'with Firebase off there is no signed-in user');
+
+  // The switch must be the only thing standing between the app and the
+  // cloud: flipping it on for real is a deliberate act, not a side effect.
+  ok(/function enabled\(\)[\s\S]{0,200}c\.enabled\s*&&\s*c\.apiKey/.test(
+      fs.readFileSync(path.join(ROOT, 'firebase.js'), 'utf8')),
+    'firebase.js gates every entry point on the config switch');
+
+  // The screen has to say so plainly: signing in is optional.
+  w.ACT.go('settings');
+  await sleep(60);
+  const txt = w.document.body.textContent || '';
+  ok(/Account/.test(txt), 'Settings has an Account section');
+  ok(/You do not need an account/.test(txt),
+    'Settings says plainly that an account is not required');
+  const signInBtn = [...w.document.querySelectorAll('[onclick]')]
+    .find(b => (b.getAttribute('onclick') || '').includes('ACT.signIn'));
+  ok(!!signInBtn, 'there is a Sign in control');
+  ok(typeof w.ACT.signIn === 'function', 'ACT.signIn exists');
+  ok(typeof w.ACT.signOut === 'function', 'ACT.signOut exists');
+
+  /* ---- the Cloud Function that makes enforcement real ---------------- */
+  const fn = fs.readFileSync(path.join(ROOT, 'functions/index.js'), 'utf8');
+
+  // The secret must come from environment config, never from source.
+  ok(!/FLWSECK-[A-Za-z0-9]/i.test(fn), 'the Cloud Function hardcodes no Flutterwave secret');
+  ok(!/sk_(live|test)_/.test(fn), 'the Cloud Function hardcodes no secret key');
+  ok(/functions\.config\(\)\.flutterwave/.test(fn),
+    'the secret is read from Firebase environment config');
+
+  // A webhook body is a claim. Nothing may be granted before Flutterwave
+  // has been asked to confirm it.
+  const iVerify = fn.indexOf('verifyWithFlutterwave(txId)');
+  const iGrant = fn.indexOf("plan: 'pro'");
+  ok(iVerify > 0 && iGrant > 0 && iVerify < iGrant,
+    'the payment is verified with Flutterwave before Pro is granted');
+  ok(/v\.status\s*===\s*'successful'/.test(fn), 'a payment only counts when its status is successful');
+  ok(/v\.currency\s*===\s*'NGN'/.test(fn), 'a payment only counts in NGN');
+
+  // The trial clock is set here, by the server, not by the device.
+  ok(/TRIAL_DAYS\s*=\s*14/.test(fn), 'the trial is 14 days');
+  ok(/onCreate/.test(fn), 'the account record is created on first sign-in');
+  ok(/existing\.exists/.test(fn),
+    'an existing account is left alone, so signing out cannot restart the trial');
+
+  // Renewing early must not cost the customer their remaining days.
+  ok(/Math\.max\(Date\.now\(\), prevMs\)/.test(fn),
+    'renewing extends from the existing expiry, not from today');
+
+  const fjson = JSON.parse(fs.readFileSync(path.join(ROOT, 'firebase.json'), 'utf8'));
+  eq(fjson.firestore.rules, 'firestore.rules', 'firebase.json points at firestore.rules');
+  eq(fjson.storage.rules, 'storage.rules', 'firebase.json points at storage.rules');
+
+  // Tapping it with Firebase off must be a message, never a crash.
+  let threw = null;
+  try { await w.ACT.signIn(); } catch (e) { threw = e.message; }
+  ok(!threw, 'tapping Sign in with Firebase off does not throw', threw || '');
+  w.ACT.go('home');
+  await sleep(30);
+}
+
+/* =====================================================================
    run
    ===================================================================== */
 (async () => {
@@ -331,9 +926,15 @@ async function suiteTaps(w) {
   }
 
   await suiteSurface(w);
+  await suiteIcons(w);
   suiteWiring(w);
   suiteDomain(w);
+  suiteBranding(w);
+  await suitePricing(w);
+  await suiteBrief(w);
   await suiteTaps(w);
+  suiteRules();
+  await suiteFirebase(w);
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);

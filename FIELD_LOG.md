@@ -61,7 +61,7 @@ Answer these as they come up, not at the end.
 - [ ] Did the **camera** behave in bright sun / dark DB rooms?
 - [ ] Did the **signature pad** work with a customer holding the phone?
 - [ ] Did anyone ask "why do I need this?" — and what did you say?
-- [ ] Would you pay ₦4,000/month for it? If not, what's missing?
+- [ ] Would you pay ₦3,000/month for it? If not, what's missing?
 
 ---
 
