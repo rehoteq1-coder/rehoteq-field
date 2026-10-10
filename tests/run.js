@@ -165,6 +165,36 @@ async function suiteIcons(w) {
     ok(!!w.ICONS[t.icon], 'trade "' + t.id + '" icon "' + t.icon + '" resolves');
   }
 
+  // The bug this catches actually shipped: TRADES[].icon became an icon
+  // *name* ('solar-panel'), and two views went on printing it as text, so
+  // the home screen read "solar-panel Solar". An icon name is an
+  // identifier, never something a technician should ever see. Walk the
+  // views and assert none of them leaks one.
+  const names = Object.keys(w.ICONS).filter(n => n.length > 3);
+  const leaks = [];
+  for (const v of ['home', 'library', 'jobs', 'settings', 'passport']) {
+    w.ACT.go(v);
+    await sleep(40);
+    const text = w.document.body.textContent || '';
+    for (const n of names) {
+      // only flag the kebab-case names a human would never write
+      if (n.includes('-') && text.includes(n)) leaks.push(v + ' shows "' + n + '"');
+    }
+  }
+  eq(leaks.length, 0, 'no view prints an icon name as text', leaks.join('\n      '));
+  w.ACT.go('home');
+  await sleep(30);
+
+  // The walk cannot reach the first-run screen, where the trade dropdown
+  // also leaked the name, so scan the source too: any interpolation that
+  // ends in `.icon` must be routed through tradeIcon() or ICON().
+  const appSrcIcons = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const bare = [...appSrcIcons.matchAll(/\$\{([^}]*\.icon)\}/g)]
+    .map(m => m[1].trim())
+    .filter(expr => !/^(tradeIcon|ICON)\(/.test(expr));
+  eq(bare.length, 0, 'no view interpolates a bare .icon value as text',
+    bare.join('\n      '));
+
   const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2300}-\u{23FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\uFE0F\u00AE]/u;
   for (const f of ['app.js', 'index.html', 'data.js', '404.html']) {
     const src = fs.readFileSync(path.join(ROOT, f), 'utf8');

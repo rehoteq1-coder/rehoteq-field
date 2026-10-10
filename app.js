@@ -306,7 +306,7 @@
         <input id="iPhone" inputmode="tel" placeholder="0803 000 0000" value="${esc((S.user && S.user.phone) || '')}"></div>
       <div class="field"><label class="fl">Main trade</label>
         <select id="iTrade">${DATA.TRADES.map(t =>
-          `<option value="${t.id}" ${(S.user && S.user.trade === t.id) || (!S.user && t.id === 'solar') ? 'selected' : ''}>${t.icon} ${t.name}</option>`
+          `<option value="${t.id}" ${(S.user && S.user.trade === t.id) || (!S.user && t.id === 'solar') ? 'selected' : ''}>${t.name}</option>`
         ).join('')}</select></div>
       <div class="field"><label class="fl">Business name (optional)</label>
         <input id="iCompany" placeholder="REHOTEQ Technologies" value="${esc((S.user && S.user.company) || '')}"></div>
@@ -354,7 +354,7 @@
         <div class="sec">What are you working on?</div>
         <div class="grid2">
           ${DATA.TRADES.map(t => `<button class="tile ${S.trade === t.id ? 'on' : ''}" onclick="ACT.setTrade('${t.id}')">
-            <span class="ic">${t.icon}</span><span class="t">${t.name}</span><span class="d">${t.desc}</span></button>`).join('')}
+            <span class="ic">${tradeIcon(t.id, 22)}</span><span class="t">${t.name}</span><span class="d">${t.desc}</span></button>`).join('')}
         </div>
         ${cont.length ? `<div class="sec">Continue</div><div class="card">${cont.map(j => `
           <div class="rowitem" onclick="ACT.openJob('${j.id}')">
