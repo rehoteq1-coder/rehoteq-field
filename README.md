@@ -116,7 +116,7 @@ npm install
 npm test
 ```
 
-161 automated checks in ten suites: a full walkthrough of every screen and
+173 automated checks in ten suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -147,6 +147,43 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.1.3** — **The server half: the trial clock, and a payment that has to be proven.**
+
+`functions/` is new — two Cloud Functions, both doing something the device
+is forbidden from doing.
+
+`createAccount` runs the moment someone first signs in and writes their
+account record with `plan: free` and a 14-day trial that starts then.
+`firestore.rules` forbids the app from creating this record — which is
+exactly what keeps `plan` out of the user's hands. The server is the clock.
+Signing out and back in cannot restart the trial: an existing record is
+left untouched.
+
+`flutterwaveWebhook` takes Flutterwave's payment notification and **verifies
+the transaction against Flutterwave's own API before granting anything** —
+successful status, NGN, at least ₦3,000. A webhook body is a claim, not
+proof; anyone can POST JSON at a public URL. Renewals extend from the
+existing expiry date, so renewing early never costs the customer their
+remaining days. The Flutterwave secret lives in Firebase environment config
+— never in this repo. The test suite fails if `FLWSECK-` appears anywhere in
+the function source; it caught a placeholder in a comment this session,
+which was the comment being wrong and the test being right.
+
+`firebase.json` now points the Firebase CLI at both rules files and the
+functions folder, so one `firebase deploy` takes all three.
+
+**Not yet switched on:** deploying these functions needs the Blaze
+(pay-as-you-go) plan first — it needs a card on file, but at our volume the
+bill is genuinely zero. One step at a time; that's the next conversation.
+
+Tests: **173 checks in ten suites**. Also closed a quiet gap: `icons.js` and
+`firebase.js` were being served to the browser but were missing from the
+scan list — a guard with holes in it is not a guard.
+
+Files changed: `functions/index.js` + `functions/package.json` (new),
+`firebase.json` (new), `tests/run.js`, `FIREBASE_PLAN.md`, `sw.js` (v14),
+`README.md`.
 
 **v1.1.2** — **Sign-in built, and switched off on purpose.**
 

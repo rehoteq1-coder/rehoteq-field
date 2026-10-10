@@ -6,3 +6,6 @@ rehoteq-field-repo.zip
 
 # scratch: downloaded reference images, never ship these
 image-search/
+
+# Cloud Functions dependencies (installed locally, never committed)
+functions/node_modules/

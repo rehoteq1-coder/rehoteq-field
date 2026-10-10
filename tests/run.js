@@ -286,8 +286,12 @@ function suiteWiring(w) {
    shipped may name a domain we do not control.
    ===================================================================== */
 const OWNED = ['field.rehoteq.com', 'rehoteq.com'];
+// Everything the browser actually downloads. If a file is served, it is
+// scanned. Note that functions/ is deliberately NOT here — it never
+// reaches a browser, which is the whole reason it may hold a secret.
 const SHIPPED = ['index.html', '404.html', 'config.js', 'app.js', 'data.js',
-                 'db.js', 'pdf.js', 'qr.js', 'report.js', 'sw.js'];
+                 'db.js', 'pdf.js', 'qr.js', 'report.js', 'sw.js',
+                 'icons.js', 'firebase.js'];
 
 function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, ' ')   // block comments
@@ -819,6 +823,38 @@ async function suiteFirebase(w) {
   ok(!!signInBtn, 'there is a Sign in control');
   ok(typeof w.ACT.signIn === 'function', 'ACT.signIn exists');
   ok(typeof w.ACT.signOut === 'function', 'ACT.signOut exists');
+
+  /* ---- the Cloud Function that makes enforcement real ---------------- */
+  const fn = fs.readFileSync(path.join(ROOT, 'functions/index.js'), 'utf8');
+
+  // The secret must come from environment config, never from source.
+  ok(!/FLWSECK-[A-Za-z0-9]/i.test(fn), 'the Cloud Function hardcodes no Flutterwave secret');
+  ok(!/sk_(live|test)_/.test(fn), 'the Cloud Function hardcodes no secret key');
+  ok(/functions\.config\(\)\.flutterwave/.test(fn),
+    'the secret is read from Firebase environment config');
+
+  // A webhook body is a claim. Nothing may be granted before Flutterwave
+  // has been asked to confirm it.
+  const iVerify = fn.indexOf('verifyWithFlutterwave(txId)');
+  const iGrant = fn.indexOf("plan: 'pro'");
+  ok(iVerify > 0 && iGrant > 0 && iVerify < iGrant,
+    'the payment is verified with Flutterwave before Pro is granted');
+  ok(/v\.status\s*===\s*'successful'/.test(fn), 'a payment only counts when its status is successful');
+  ok(/v\.currency\s*===\s*'NGN'/.test(fn), 'a payment only counts in NGN');
+
+  // The trial clock is set here, by the server, not by the device.
+  ok(/TRIAL_DAYS\s*=\s*14/.test(fn), 'the trial is 14 days');
+  ok(/onCreate/.test(fn), 'the account record is created on first sign-in');
+  ok(/existing\.exists/.test(fn),
+    'an existing account is left alone, so signing out cannot restart the trial');
+
+  // Renewing early must not cost the customer their remaining days.
+  ok(/Math\.max\(Date\.now\(\), prevMs\)/.test(fn),
+    'renewing extends from the existing expiry, not from today');
+
+  const fjson = JSON.parse(fs.readFileSync(path.join(ROOT, 'firebase.json'), 'utf8'));
+  eq(fjson.firestore.rules, 'firestore.rules', 'firebase.json points at firestore.rules');
+  eq(fjson.storage.rules, 'storage.rules', 'firebase.json points at storage.rules');
 
   // Tapping it with Firebase off must be a message, never a crash.
   let threw = null;

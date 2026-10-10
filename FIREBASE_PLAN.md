@@ -216,6 +216,27 @@ paying, and build teams when the eleventh asks for it. Building teams first
 means spending the hardest month of work on a feature with no buyer, and
 discovering afterwards that you guessed the workflow wrong.
 
+## Cloud Functions — written, not yet deployed
+
+`functions/index.js` holds the two things a phone must never be trusted to
+do: create the account record (and start the 14-day trial) on first sign-in,
+and grant Pro only after Flutterwave's API has confirmed the payment.
+
+Deploying them is the one place the free plan runs out: **Cloud Functions
+require Blaze** (pay-as-you-go). At our volume the bill is zero — the free
+allowance is millions of invocations — but a card must be on file. The
+sequence, one step at a time:
+
+1. Upgrade `rehoteq-field` to Blaze (console → Upgrade).
+2. On a computer with Node: `npm install -g firebase-tools`, `firebase login`.
+3. `firebase deploy --only functions` from the repo root.
+4. Set the secret (once, from a terminal — never in the repo):
+   `firebase functions:config:set flutterwave.secret="..."` then re-deploy.
+
+Never paste the secret key into chat or into any file here. Only the
+`sk_`/`FLWSECK-` values matter — the public web config in `config.js` is
+safe by design.
+
 ## Security rules — written, and waiting on you
 
 `firestore.rules` and `storage.rules` are in the repo. **They do nothing until
