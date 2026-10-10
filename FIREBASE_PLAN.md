@@ -52,6 +52,53 @@ going to work.
 
 ---
 
+## Which Firebase services, and what each one holds
+
+Four services, and it is easy to enable three and wonder why nothing works.
+
+| Service | Holds | Needed? |
+|---|---|---|
+| **Authentication** | Who you are. Sign-in, session, password reset. | **Yes** — the gate for everything else |
+| **Firestore** | Structured data: accounts, `plan`, `trialEndsAt`, company profile, staff list, job records | **Yes** |
+| **Cloud Storage** | The actual **photo files** — before / during / after / serial | **Yes** — and it is the one that will cost money |
+| **Cloud Functions** | The Flutterwave payment webhook | **Yes** — the easiest to forget, and the one that makes money real |
+
+### Firestore is for data you query. Storage is for files.
+
+Never put a photo in Firestore. A Firestore document caps at 1 MB and you are
+billed on reads; a single job photo would blow through both.
+
+The correct split:
+
+- **Cloud Storage** holds the image bytes.
+- **Firestore** holds only the *reference* — the storage path, the SHA-256,
+  the GPS stamp, the capture time.
+
+That is already how the app works locally: `db.js` keeps photo blobs and job
+records apart, and every photo carries its own hash. The cloud version mirrors
+it rather than redesigning it.
+
+### Storage is where the bill comes from
+
+A job record is a few kilobytes. A job's photos are several megabytes. Firestore
+will stay inside the free allowance effectively forever; **Cloud Storage is the
+one to watch.** Twelve photos a job, twenty jobs a week, is gigabytes a year.
+
+### Photos must never auto-upload on mobile data
+
+Our user pays for his own data bundle. A feature that silently uploads twelve
+site photos over MTN is a feature that costs him money he did not agree to
+spend — and it will eat his bundle on the first job of the month.
+
+So photo sync is:
+
+- **Off by default on mobile data**
+- **Automatic on Wi-Fi**
+- **Always available as a manual "back up this job" tap**
+
+The job record — the text, the checklist, the signatures — is small enough to
+sync whenever. Only the photos wait.
+
 ## Data model
 
 ```
@@ -71,6 +118,10 @@ jobs/{jobId}
   ...mirrors the local job record...
   companyId, ownerId, assignedTo
   instructions                         ← the brief the lead sets
+  photos/{photoId}                     ← metadata only, not the image
+    storagePath, sha256, stage, lat, lng, capturedAt
+
+storage: jobs/{jobId}/{photoId}.jpg    ← the actual bytes, in Cloud Storage
 ```
 
 A technician sees jobs assigned to them, plus their company's jobs if they are
