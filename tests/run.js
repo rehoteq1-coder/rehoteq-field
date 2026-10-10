@@ -266,6 +266,34 @@ function headIdentifiers(code) {
 
 function suiteWiring(w) {
   describe('2. Wiring audit — every inline handler is reachable from the page');
+
+  /* The publish step in deploy.yml carries a hand-typed list of files. If
+     anything the page loads is missing from that list, GitHub happily
+     publishes a site whose app crashes on load — the tests all pass
+     locally where the files exist. This closes that hole: every file the
+     page references and every file the service worker caches must appear
+     in the copy list, or the build fails. */
+  const deployYml = fs.readFileSync(path.join(ROOT, '.github/workflows/deploy.yml'), 'utf8');
+  const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
+    .split(/\s+/).map(s => s.trim()).filter(Boolean);
+  ok(deployList.length > 10, 'deploy.yml has a publish list to check against');
+
+  const needed = new Set();
+  const htmlSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  (htmlSrc.match(/(?:src|href)="([^"]+)"/g) || []).forEach(m => {
+    const ref = m.replace(/^(?:src|href)="/, '').replace(/"$/, '');
+    if (!/^(https?:|#|mailto:|data:)/.test(ref)) needed.add(ref.split('/').pop());
+  });
+  const shellSrc = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  ((shellSrc.match(/const SHELL = \[([\s\S]*?)\]/) || ['', ''])[1].match(/'([^']+)'/g) || [])
+    .forEach(m => {
+      const ref = m.slice(1, -1);
+      if (ref !== './') needed.add(ref.split('/').pop());
+    });
+
+  const missing = [...needed].filter(f => !deployList.includes(f));
+  ok(missing.length === 0,
+    'every file the app loads is in the publish list', 'missing: ' + missing.join(', '));
   const handlers = collectHandlers();
   ok(handlers.length > 50, 'found inline handlers to audit (' + handlers.length + ')');
 

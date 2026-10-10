@@ -116,7 +116,7 @@ npm install
 npm test
 ```
 
-185 automated checks in ten suites: a full walkthrough of every screen and
+187 automated checks in ten suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -147,6 +147,24 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.1.5** — **Fixed a landmine on the delivery belt, then merged everything to `main`.**
+
+The publish step in `deploy.yml` carries a hand-typed list of the files it
+copies to the website. `icons.js` and `firebase.js` were not on it. The
+tests would never have caught that — they run locally, where the files
+exist — but the moment this branch merged, GitHub would have published a
+site whose app crashes on load. The list now carries everything, and a new
+test reads `index.html` and `sw.js` and fails the build if any file the app
+loads is missing from the publish list.
+
+While checking that, the bigger find: the live site has been serving
+`rehoteq-field-v5` — none of this session's work (the payment links, the
+icons, the sign-in layer, any of it) had ever reached `main`, and so none
+of it had ever reached a phone. This version merges the whole body of work.
+
+Files changed: `.github/workflows/deploy.yml`, `tests/run.js`, `sw.js`
+(v16), `README.md`. Tests: **187 checks in ten suites**.
 
 **v1.1.4** — **The assessor's logo is now the app icon.**
 
