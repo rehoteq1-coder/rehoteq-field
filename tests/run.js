@@ -106,6 +106,25 @@ async function suiteSurface(w) {
   ok(typeof w.ACT.go === 'function', 'ACT.go is callable');
   ok(typeof w.ACT.toast === 'function', 'ACT.toast is callable');
 
+  // The app icons are the assessor's brand artwork, cut from the source
+  // sheet. The old stand-in icons were 2.8KB/7.9KB of flat colour — a
+  // swapped-in placeholder would fail the size floor below.
+  const iconCases = [
+    ['icon-512.png', 512, 40000],
+    ['icon-192.png', 192, 10000]
+  ];
+  const manif = fs.readFileSync(path.join(ROOT, 'manifest.webmanifest'), 'utf8');
+  iconCases.forEach(([f, dim, minBytes]) => {
+    const buf = fs.readFileSync(path.join(ROOT, f));
+    const isPng = buf.length > 24 && buf.readUInt32BE(0) === 0x89504E47;
+    ok(isPng, f + ' is a real PNG');
+    eq(buf.readUInt32BE(16), dim, f + ' is ' + dim + ' pixels wide');
+    eq(buf.readUInt32BE(20), dim, f + ' is ' + dim + ' pixels tall');
+    ok(buf.length > minBytes, f + ' is the brand artwork, not a stub (' + buf.length + ' bytes)');
+    ok(manif.indexOf('"' + f + '"') >= 0, 'manifest.webmanifest declares ' + f);
+    ok(manif.indexOf('"' + dim + 'x' + dim + '"') >= 0, 'manifest declares its size ' + dim + 'x' + dim);
+  });
+
   // The <div id="toast"> in index.html claims the global name `toast`.
   // Handlers must therefore never call a bare toast(...).
   ok(typeof w.toast !== 'function',

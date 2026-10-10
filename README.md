@@ -116,7 +116,7 @@ npm install
 npm test
 ```
 
-173 automated checks in ten suites: a full walkthrough of every screen and
+185 automated checks in ten suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -147,6 +147,29 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.1.4** — **The assessor's logo is now the app icon.**
+
+The brand artwork arrived the only way that worked — uploaded into the repo
+— and the two app icons are cut straight from the source sheet: 512×512 and
+192×192, exactly as designed, wordmark included.
+
+Cutting them honestly took three tries, and the tests are the reason the
+third one is right: the tile's dark green was invisible to my first colour
+detector, the square-pad filled with black, and a drop shadow under the tile
+kept biasing the crop downward. The final cut is verified pixel-by-pixel —
+zero light pixels on any edge, zero background left outside the rounded
+corners (the corner voids are filled with the tile's own gradient, so no
+launcher mask can ever show a light sliver), and the wrench, swoosh and
+wordmark all intact.
+
+Nine new checks: each icon must be a real PNG at its declared size, match
+what `manifest.webmanifest` promises, and exceed a size floor that the old
+2.8KB/7.9KB stub icons could not pass — so a placeholder can never quietly
+sneak back in.
+
+Files changed: `icon-512.png`, `icon-192.png`, `tests/run.js`, `sw.js` (v15),
+`README.md`. Tests: **185 checks in ten suites**.
 
 **v1.1.3** — **The server half: the trial clock, and a payment that has to be proven.**
 
