@@ -58,6 +58,11 @@ That's the whole product in one tap.
 - ✅ Photo capture → compressed to ≤350 KB, with **time, GPS and name burned
   into the pixels**, SHA-256 hash-chained
 - ✅ Two signature pads → both signatures **lock the job card** as evidence
+- ✅ **Your own logo** on the masthead of every report and quotation
+- ✅ Business address, phone, email and bank details: collected once, printed
+  on every document
+- ✅ **₦ printed properly** — drawn as vector paths, since the standard PDF
+  fonts have no naira glyph (see Engineering notes)
 - ✅ Service report → **real PDF** → WhatsApp share
 - ✅ Quotation → line items, labour, VAT → **real PDF**
 - ✅ Solar passport → **real QR code**, live warranty countdown, service history
@@ -80,8 +85,14 @@ pagination and footers are correct.
 versions 1–6. Its output was verified **bit-for-bit identical** to the reference
 `qrcode` npm library across multiple inputs, including mask selection.
 
-**Currency.** ₦ is not in WinAnsiEncoding, so PDF amounts print as
-`NGN 25,000.00`. Embedding a TTF fixes this properly — noted as a Phase-2 item.
+**Currency, properly.** ₦ is not in WinAnsiEncoding and there is no embedded
+TTF, so a naira amount cannot be *typeset*. `pdf.js` draws it instead: a
+Helvetica-proportioned N with the two crossbars, built from vector paths at the
+font's own cap height, stem weight and side bearings. It sits on the same
+baseline as the figures beside it and costs nothing to render. The trade-off is
+that a drawn glyph is invisible to text extraction, so copying
+`₦28,000.00` out of a PDF gives you `28,000.00`. Embedding a real TTF remains
+the proper fix if that ever matters.
 
 **Backup was the gap.** The first build could export but not import — which
 isn't a backup. It now does both, including photos, and restores by *merging*
@@ -132,6 +143,23 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.0.6** — **Every document now looks like it came from a real company.**
+Upload your logo in *Settings → Edit profile* and it is letterboxed onto the
+masthead of every service report and quotation — the PDF engine already
+embedded JPEGs for photographs, so this is the same code path. Added the
+fields the masthead was already trying to print but Settings never asked for:
+business address, email, and bank details (`report.js` has been reading
+`profile.address` since v1.0.0 and it was always blank).
+
+**Amounts now print as ₦28,000.00, not NGN 28,000.00.** The naira sign is
+absent from WinAnsiEncoding, so `pdf.js` draws it: a Helvetica-proportioned N
+with the two crossbars, as vector paths. Verified by rendering the output and
+measuring it — the glyph tops out at 256.3pt where the figures it sits beside
+top out at 256.3pt. **This surfaced a real bug:** `sanitize()` was stripping ₦
+before `width()` could measure it, so every amount containing a naira sign was
+measured ~12% short and the total overflowed the right margin. Fixed, and
+covered by a new branding suite (52 checks). Cache → v7.
 
 **v1.0.5** — **Fixed: the app was making three claims it could not support.**
 Every service report PDF was stamped *"VERIFIED EVIDENCE — This report is

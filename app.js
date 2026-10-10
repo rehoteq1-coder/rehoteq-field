@@ -174,6 +174,30 @@
     input.click();
   }
 
+  /* ---------------- logo --------------------------------------------
+     The logo lands on every PDF he sends, so it has to be small enough to
+     sit inside a backup file and simple enough to survive one: a 256 px
+     JPEG on a white background, kept as a data URL so it round-trips
+     through the JSON backup like any other string.
+     Transparent PNGs flatten onto white — JPEG has no alpha, and a logo
+     on a printed document is on paper anyway.
+  -------------------------------------------------------------------- */
+  async function compressLogo(file) {
+    const bmp = await IMG.loadBitmap(file);
+    const MAX = 256;
+    const k = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * k));
+    const h = Math.max(1, Math.round(bmp.height * k));
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
+    return { dataUrl: cv.toDataURL('image/jpeg', 0.86), w: w, h: h };
+  }
+
   /* ---------------- gps --------------------------------------------- */
   function getGps(cb) {
     if (!navigator.geolocation) { toast('No GPS on this device'); return; }
@@ -280,7 +304,33 @@
         ).join('')}</select></div>
       <div class="field"><label class="fl">Business name (optional)</label>
         <input id="iCompany" placeholder="REHOTEQ Technologies" value="${esc((S.user && S.user.company) || '')}"></div>
-      <button class="btn primary" style="margin-top:6px" onclick="ACT.saveProfile()">Get started</button>
+      ${S.user ? `
+        <div class="sec" style="margin:16px 0 2px">Printed on every document</div>
+        <div class="card" style="margin-bottom:12px"><div class="cb">
+          <div class="field"><label class="fl">Business address</label>
+            <input id="iAddress" placeholder="12 Sapele Road, Benin City" value="${esc(S.user.address || '')}"></div>
+          <div class="field"><label class="fl">Email (optional)</label>
+            <input id="iEmail" inputmode="email" placeholder="hello@rehoteq.com" value="${esc(S.user.email || '')}"></div>
+          <div class="field"><label class="fl">Bank details (printed on quotations)</label>
+            <input id="iBank" placeholder="GTBank · 0123456789 · REHOTEQ Technologies" value="${esc(S.user.bank || '')}"></div>
+          <div class="field" style="margin-bottom:0"><label class="fl">Logo</label>
+            ${S.user.logo ? `
+              <div style="display:flex;align-items:center;gap:10px">
+                <img src="${esc(S.user.logo.dataUrl)}" alt=""
+                  style="width:52px;height:52px;object-fit:contain;background:#F1F5F9;border-radius:10px">
+                <div style="flex:1;font-size:11.5px;color:var(--muted);line-height:1.5">
+                  Appears on every report and quotation.</div>
+              </div>
+              <div class="btnrow" style="margin-top:10px">
+                <button class="btn ghost sm" style="flex:1" onclick="ACT.pickLogo()">Replace</button>
+                <button class="btn ghost sm" style="flex:1" onclick="ACT.removeLogo()">Remove</button>
+              </div>` : `
+              <button class="btn ghost sm" style="width:100%" onclick="ACT.pickLogo()">＋ Add your logo</button>
+              <div class="hintline">A square image looks best. It is resized to 256 px
+                and travels inside your backup.</div>`}
+          </div>
+        </div></div>` : ''}
+      <button class="btn primary" style="margin-top:6px" onclick="ACT.saveProfile()">${S.user ? 'Save profile' : 'Get started'}</button>
       <div class="center" style="font-size:10.5px;color:#94A3B8;margin-top:14px;line-height:1.6">
         No account needed. Everything is stored on this device until you choose to sync.
       </div>
@@ -785,9 +835,18 @@
           <div class="srow"><span class="si">🏢</span><span class="sl">Business name</span>
             <span class="sv">${esc(u.company || 'Not set')}</span></div>
           <div class="srow"><span class="si">👤</span><span class="sl">Your name</span><span class="sv">${esc(u.name || '')}</span></div>
-          <div class="srow"><span class="si">📞</span><span class="sl">Phone</span><span class="sv">${esc(u.phone || '')}</span></div>
+          <div class="srow"><span class="si">📞</span><span class="sl">Phone</span><span class="sv">${esc(u.phone || 'Not set')}</span></div>
+          <div class="srow"><span class="si">📍</span><span class="sl">Business address</span>
+            <span class="sv">${esc(u.address || 'Not set')}</span></div>
+          <div class="srow"><span class="si">✉️</span><span class="sl">Email</span>
+            <span class="sv">${esc(u.email || 'Not set')}</span></div>
           <div class="srow"><span class="si">🏦</span><span class="sl">Bank details</span>
             <span class="sv">${esc(u.bank || 'Not set')}</span></div>
+          <div class="srow"><span class="si">🖼</span><span class="sl">Logo</span>
+            <span class="sv">${u.logo && u.logo.dataUrl
+              ? '<img src="' + esc(u.logo.dataUrl) + '" alt="" style="width:28px;height:28px;' +
+                'object-fit:contain;background:#F1F5F9;border-radius:7px;vertical-align:middle">'
+              : 'Not set'}</span></div>
           <div class="srow" style="cursor:pointer" onclick="ACT.editProfile()">
             <span class="si">✏️</span><span class="sl">Edit profile</span><span style="color:#94A3B8">›</span></div>
         </div>
@@ -1047,11 +1106,22 @@
     async saveProfile() {
       const name = $('iName').value.trim();
       if (!name) return toast('Enter your name');
+      const prev = S.user || {};
       S.user = {
         name: name, phone: $('iPhone').value.trim(), trade: $('iTrade').value,
         company: $('iCompany').value.trim() || 'REHOTEQ Technologies',
-        plan: (S.user && S.user.plan) || 'free', bank: (S.user && S.user.bank) || ''
+        plan: prev.plan || 'free',
+        // carried through untouched — these are edited on the same screen
+        // once a profile exists, and must not be wiped on first run
+        bank: prev.bank || '', address: prev.address || '',
+        email: prev.email || '', logo: prev.logo || null
       };
+      // the document fields are only rendered when editing an existing
+      // profile, so read them defensively rather than assuming they exist
+      const pick = id => { const el = $(id); return el ? el.value.trim() : null; };
+      if (pick('iAddress') !== null) S.user.address = pick('iAddress');
+      if (pick('iEmail') !== null) S.user.email = pick('iEmail');
+      if (pick('iBank') !== null) S.user.bank = pick('iBank');
       S.trade = S.user.trade;
       await DB.setMeta('user', S.user);
       await refreshJobs();
@@ -1060,6 +1130,33 @@
     },
 
     async editProfile() { S.user = S.user || {}; go('boot'); },
+
+    pickLogo() {
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = 'image/*';
+      input.onchange = async () => {
+        const f = input.files && input.files[0];
+        if (!f) return;
+        try {
+          S.user = S.user || {};
+          S.user.logo = await compressLogo(f);
+          await DB.setMeta('user', S.user);
+          render();
+          toast('Logo added', 'It now appears on every report and quotation');
+        } catch (e) {
+          toast('Could not read that image', String((e && e.message) || e));
+        }
+      };
+      input.click();
+    },
+
+    async removeLogo() {
+      if (!S.user) return;
+      delete S.user.logo;
+      await DB.setMeta('user', S.user);
+      render();
+      toast('Logo removed');
+    },
 
     setTrade(t) { S.trade = t; if (S.user) { S.user.trade = t; DB.setMeta('user', S.user); } render(); },
     search(v) { S.search = v; const el = $('iSearch'); render(); const n = $('iSearch'); if (n) { n.focus(); n.setSelectionRange(v.length, v.length); } },

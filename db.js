@@ -180,5 +180,5 @@
   }
 
   global.DB = DB;
-  global.IMG = { processPhoto, sha256, uid, blobToBytes, blobToDataURL, drawStamp };
+  global.IMG = { processPhoto, sha256, uid, blobToBytes, blobToDataURL, drawStamp, loadBitmap };
 })(window);

@@ -42,7 +42,7 @@ Finally, the real bottleneck on item ① is not money or code:
 
 | What | Result |
 |---|---|
-| `npm install && npm test` | **43 checks pass, 0 fail** |
+| `npm install && npm test` | **52 checks pass, 0 fail** |
 | Source read end to end | `app.js` (1580), `data.js` (506), `report.js` (407), `db.js` (184), `qr.js` (314), `pdf.js` (247), `schema.sql` (625) |
 | Every inline button handler | Audited by the existing wiring test |
 
@@ -63,9 +63,10 @@ documentation cannot be trusted as evidence — which is the theme of this revie
 | ④ | Job Evidence Vault | **EXISTS (80%)** | Before/during/after/serial photos, GPS + time + name burned into pixels, per-photo SHA-256, dual signatures, job locks at sign-off, PDF evidence section | 0.5 day (honesty fix) + 1 day (amendments) |
 | ⑤ | Customer & Equipment Memory | **PARTIAL (35%)** | Solar passport, QR sticker, warranty countdown, service history by serial | 0.5 day for search |
 | ⑥ | Offline-first workspace | **EXISTS** | Service worker caches 14 files, IndexedDB, on-device PDF + QR, offline indicator, sync outbox | Verify, don't build — 0.5 day |
-| ⑦ | Professional Business Kit | **PARTIAL (50%)** | Business profile, branded masthead, quotation with payment block, 2 PDF templates | Logo: 0.5 day · each new document: 0.5 day |
+| ⑦ | Professional Business Kit | **DONE — shipped in v1.0.6** | Logo upload, business address, email, bank details, ₦ printed properly | Remaining: extra document templates, 0.5 day each |
 
-**Total to finish everything: roughly 8–9 working days of development**, plus
+**Item ⑦ has since been built — see the note at the end.** Remaining total:
+roughly **7–8 working days of development**, plus
 the library content, which is yours to dictate and is the single biggest lever
 on whether any of this is worth ₦2,500 or ₦4,000 a month.
 
@@ -442,7 +443,12 @@ development.**
 
 ---
 
-## ⑦ Professional Business Kit — PARTIAL (about 50%)
+## ⑦ Professional Business Kit — DONE (shipped in v1.0.6)
+
+> **Update, 10 Oct:** after writing this review I built the parts of item ⑦
+> that every job depends on. Skip to [What changed](#what-changed-since-this-review)
+> for the detail. The analysis below is kept because the *remaining* half of
+> the item — the extra document templates — is still open.
 
 ### What already works
 
@@ -552,12 +558,12 @@ Not all seven. Four, in this order, and then re-test on real jobs.
 
 | Order | Item | Effort | Why here |
 |---|---|---|---|
+| **0** | **Logo, address, contact line, ₦** (⑦) — **DONE** | 0.5 day | The PDF is the one artifact every job produces. It now carries your logo, your address and a real naira sign. |
 | **1** | **Search across jobs + customers + serials** (⑤) | 0.5 day | Cheapest real win in the brief. Turns the app into something that gets more useful every job. Unlocks the passport. |
 | **2** | **Cost, unit, transport and profit on materials** (②) | 2 days | The Assessor's strongest selling point — *"stop losing money on jobs"* — is currently impossible because cost does not exist. This is the Pro feature. |
 | **3** | **Job templates / packages** (③, templates only) | 1 day | Saves the most time per minute of typing, works offline, no parser to get wrong. Voice comes later, if at all. |
-| **4** | **Logo upload + address on the PDF** (⑦) | 0.5 day | Removes the paywall's false promise, makes every document look like a real company. Half a day. |
 
-**Total: 4 days.** Then stop, ship, and run 20 jobs through it.
+**Remaining: 3.5 days.** Then stop, ship, and run 20 jobs through it.
 
 ### Deliberately not doing yet
 
@@ -610,11 +616,82 @@ value-per-day, not by importance.
 | `report.js` | PDF footer no longer claims the report is "tamper-evident". It now states what is true: both signatures, the date, the number of photographs, the stamp, and the reference. |
 | `app.js` | Report screen: "🔐 Verified evidence" → "🔎 Record reference". Photos screen: "hash-chained … anyone can verify it" → accurate wording about the stamp and the local record. |
 | `sw.js` | Cache → `rehoteq-field-v6` so installed phones pick up the new wording. |
-| `README.md` | Changelog entry. |
+| `README.md` | Changelog entry, and the test count corrected. |
 | `PRO_FEASIBILITY.md` | This document. |
 
 Tests: **43 passed, 0 failed.**
 
-**Nothing else was changed.** No features were started. The seven items are
-assessed, costed and sequenced above, and I am waiting for your word on pricing
-and on which of the four to start.
+---
+
+<a name="what-changed-since-this-review"></a>
+## What changed since this review
+
+You asked what the best move was. My answer was item ⑦ — not because it
+scored highest on importance, but because **the PDF is the one artifact every
+single job produces**. Search is worthless until there is data in the app, and
+cost/profit is worthless until you actually use the app. A document you are
+proud to hand over pays off on job #1. So I built it.
+
+### Shipped
+
+**Your logo on every document.** *Settings → Edit profile → Add your logo.*
+Resized to 256 px, stored as a data URL so it travels inside your backup, and
+letterboxed into the masthead so it is never stretched. The PDF engine already
+embedded JPEGs for job photographs, so this was the same code path — which is
+why it took half a day rather than a week.
+
+**The fields the masthead was already trying to print.** `report.js` has been
+reading `profile.address` since v1.0.0 and Settings never asked for one, so
+that line was blank on every PDF ever produced. Business address, email and
+bank details are now collected on the edit-profile screen and printed under the
+company name on both the report and the quotation. Over-long lines truncate
+rather than running into the right-hand column.
+
+**₦ instead of NGN.** The naira sign is absent from WinAnsiEncoding and there
+is no embedded TTF, so it cannot be typeset — `pdf.js` draws it as vector
+paths instead: a Helvetica-proportioned N with the two crossbars, using the
+font's own cap height, stem weight and side bearings.
+
+I verified this by rendering the PDFs and measuring them rather than trusting
+the code. The glyph tops out at **256.3pt**; the figures it sits beside top out
+at **256.3pt**. Bold is 25% heavier than regular. Both crossbars land where
+they were aimed.
+
+**That measurement caught a real bug.** `sanitize()` was stripping ₦ before
+`width()` could measure it, so every amount containing a naira sign was
+measured about 12% short — and the total on a quotation **overflowed the right
+margin**. It would have shipped looking fine in testing and broken on the
+first quotation with a seven-figure total. Fixed, and there is now a test that
+would catch it.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `pdf.js` | Draws ₦ as vector paths; `text()` splits mixed runs; `width()` measures the sign; `sanitize()` preserves it, `esc()` strips it as a last resort. |
+| `report.js` | `logoBox()` for the masthead (logo or the R mark), `contactLine()`, `fit()` truncation. |
+| `app.js` | Logo upload/remove, `compressLogo()`, address/email/bank fields on the edit-profile screen, new Settings rows. |
+| `db.js` | Exports `loadBitmap` for the logo pipeline. |
+| `tests/run.js` | New branding suite: 9 checks. |
+| `sample-report.pdf`, `sample-quotation.pdf` | Regenerated, so the samples show what the app actually produces now. |
+| `sw.js` | Cache → `rehoteq-field-v7`. |
+
+Tests: **52 passed, 0 failed.**
+
+### Still open on item ⑦
+
+- **Extra document templates** — maintenance certificate, equipment handover,
+  payment receipt, warranty record. About half a day each, mostly layout.
+- **The naira sign is invisible to text extraction**, because it is drawn
+  rather than typed. Copying `₦28,000.00` out of a PDF gives you `28,000.00`.
+  Embedding a real TTF fixes it properly if that ever matters.
+
+### Still waiting on you
+
+1. **Pricing** — ₦4,000 (locked, and what the code assumes) or ₦2,500 (the
+   Assessor's proposal). I have not touched it.
+2. **Payments** — there is still no way to take money. No Paystack, no
+   Flutterwave, no trial timer, and a Settings toggle that grants Pro for
+   free. ~2 days, and it is the difference between a product and a hobby.
+3. **Which of the remaining three to build** — search (0.5d), cost/profit
+   (2d), or job templates (1d). My order is in the table above.

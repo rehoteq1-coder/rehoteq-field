@@ -58,6 +58,60 @@
     if (isNaN(d)) return '';
     return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
+  // Synchronous base64 → bytes. The logo is stored as a data URL so it
+  // survives a backup/restore round-trip as plain JSON; JPEG bytes are what
+  // the PDF image operator needs.
+  const ATOB = (typeof global !== 'undefined' && global.atob) ? global.atob : atob;
+  function jpegFromDataUrl(d) {
+    const b = String(d || '').split(',')[1] || '';
+    const bin = ATOB(b);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  // Trim a line to fit, so a long address can never run into the
+  // right-hand column of the masthead.
+  function fit(s, size, maxW) {
+    const str = String(s || '');
+    if (PDFT.width(str, size, false) <= maxW) return str;
+    let out = str;
+    while (out.length > 1 && PDFT.width(out + '...', size, false) > maxW) {
+      out = out.slice(0, -1);
+    }
+    return out.trim() + '...';
+  }
+
+  /* --- the brand mark on every document -------------------------------
+     The technician's own logo if he has uploaded one, letterboxed so it
+     is never stretched; the REHOTEQ "R" if he has not. A logo that fails
+     to decode must degrade to the mark, not to a broken PDF.
+  */
+  function logoBox(c, x, y, s, profile) {
+    PDFT.rect(c.p, x, y, s, s, WHITE);
+    const logo = profile.logo;
+    if (logo && logo.dataUrl && logo.w && logo.h) {
+      try {
+        const bytes = jpegFromDataUrl(logo.dataUrl);
+        const pad = Math.max(2, s * 0.11);
+        const avail = s - pad * 2;
+        const k = Math.min(avail / logo.w, avail / logo.h);
+        const dw = logo.w * k, dh = logo.h * k;
+        PDFT.image(c.p, bytes, logo.w, logo.h,
+          x + (s - dw) / 2, y + (s - dh) / 2, dw, dh);
+        return;
+      } catch (e) { /* fall through to the mark */ }
+    }
+    PDFT.text(c.p, x + s * 0.28, y + s * 0.74, 'R',
+      { size: s * 0.58, bold: true, color: GREEN });
+  }
+
+  // One contact line under the company name, built from whatever the
+  // technician has actually filled in.
+  function contactLine(profile) {
+    return [profile.address, profile.phone, profile.email].filter(Boolean).join('  ·  ');
+  }
+
   function coord(lat, lng) {
     if (lat === null || lat === undefined || lng === null || lng === undefined) return '—';
     const a = Math.abs(lat).toFixed(4) + '° ' + (lat >= 0 ? 'N' : 'S');
@@ -103,11 +157,13 @@
 
     /* --- masthead ---------------------------------------------------- */
     PDFT.rect(c.p, 0, 0, 595.28, 104, GREEN);
-    PDFT.rect(c.p, M, 26, 26, 26, WHITE);
-    PDFT.text(c.p, M + 6.5, 45, 'R', { size: 15, bold: true, color: GREEN });
+    logoBox(c, M, 24, 28, profile);
     PDFT.text(c.p, M + 38, 38, 'SERVICE REPORT', { size: 17, bold: true, color: WHITE });
-    PDFT.text(c.p, M + 38, 58, company, { size: 9.5, color: [0.85, 0.94, 0.90] });
-    if (profile.address) PDFT.text(c.p, M + 38, 71, profile.address, { size: 8, color: [0.78, 0.90, 0.85] });
+    PDFT.text(c.p, M + 38, 58, fit(company, 9.5, CW - 46), { size: 9.5, color: [0.85, 0.94, 0.90] });
+    const contact = contactLine(profile);
+    if (contact) {
+      PDFT.text(c.p, M + 38, 71, fit(contact, 8, 380), { size: 8, color: [0.78, 0.90, 0.85] });
+    }
 
     const refW = PDFT.width(job.ref, 9, true);
     PDFT.text(c.p, 595.28 - M - refW, 38, job.ref, { size: 9, bold: true, color: WHITE });
@@ -316,10 +372,13 @@
     const c = new Ctx();
 
     PDFT.rect(c.p, 0, 0, 595.28, 92, GREEN);
-    PDFT.rect(c.p, M, 22, 24, 24, WHITE);
-    PDFT.text(c.p, M + 6, 40, 'R', { size: 14, bold: true, color: GREEN });
+    logoBox(c, M, 21, 26, profile);
     PDFT.text(c.p, M + 38, 32, 'QUOTATION', { size: 17, bold: true, color: WHITE });
-    PDFT.text(c.p, M + 38, 52, company, { size: 9.5, color: [0.85, 0.94, 0.90] });
+    PDFT.text(c.p, M + 38, 52, fit(company, 9.5, CW - 46), { size: 9.5, color: [0.85, 0.94, 0.90] });
+    const qContact = contactLine(profile);
+    if (qContact) {
+      PDFT.text(c.p, M + 38, 66, fit(qContact, 8, 330), { size: 8, color: [0.78, 0.90, 0.85] });
+    }
 
     const nW = PDFT.width(q.number, 11, true);
     PDFT.text(c.p, 595.28 - M - nW, 34, q.number, { size: 11, bold: true, color: WHITE });

@@ -268,6 +268,94 @@ function suiteDomain(w) {
 }
 
 /* =====================================================================
+   SUITE 2c — branding: logo, contact line and the naira sign
+
+   These are the three things on every document a customer receives.
+   The naira sign in particular is drawn as vector paths, not set as a
+   glyph, so it is invisible to text extraction — measure the drawing
+   instead of reading it back.
+   ===================================================================== */
+function suiteBranding(w) {
+  describe('2c. Branding — logo, contact line, and the naira sign');
+
+  const base = {
+    ref: 'RF-2026-00184', trade: 'solar', jobType: 'Inverter fault diagnosis',
+    customer: { name: 'Mr. Adewale Ade', phone: '0803 000 0000', address: '14 Adeyemi St' },
+    site: { address: '14 Adeyemi St, Okitipupa', lat: 6.4975, lng: 4.7814 },
+    equipment: { model: 'SMS-II 6.2K', serial: 'SMS62-2024-88314', capacity: '6.2 kVA', installDate: '2025-07-24' },
+    fault: 'E03 on load.', diagnosis: 'Loose DC terminal.', work: 'Re-terminated and torqued.',
+    recommendation: 'Bank at 71% SoH.', materials: [{ desc: 'Copper lug', qty: 2, unitPrice: 1500 }],
+    labour: 25000, signatures: {}, status: 'completed',
+    startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+    lockedAt: new Date().toISOString(), createdAt: new Date().toISOString(), hashes: ['e3b0c442']
+  };
+  const noPhotos = { before: [], during: [], after: [], serial: [] };
+  const tinyJpeg = 'data:image/jpeg;base64,' + Buffer.from('not-really-a-jpeg').toString('base64');
+
+  // --- the naira sign is measured, not dropped -------------------------
+  const withSign = w.PDFT.width('\u20A61,000', 11, true);
+  const noSign = w.PDFT.width('1,000', 11, true);
+  ok(withSign > noSign + 5,
+    'PDFT.width counts the naira sign (advance ' + (withSign - noSign).toFixed(2) + 'pt)',
+    'with ' + withSign.toFixed(2) + ' vs without ' + noSign.toFixed(2));
+
+  // A ₦ that reached the content stream as a character would emit a bad
+  // octal escape; it must be drawn as paths instead.
+  let moneyPdf = '';
+  try {
+    moneyPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'REHOTEQ Technologies' })).toString('latin1');
+  } catch (e) { ok(false, 'a report with naira amounts builds', String(e.message)); return; }
+  ok(!moneyPdf.includes('\\20346'),
+    'no raw U+20A6 octal escapes in the content stream');
+  ok(!moneyPdf.includes('NGN'),
+    'amounts no longer print as "NGN"');
+
+  // --- logo in, logo out ----------------------------------------------
+  let logoPdf = '';
+  try {
+    logoPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'REHOTEQ Technologies',
+        logo: { dataUrl: tinyJpeg, w: 240, h: 240 } })).toString('latin1');
+  } catch (e) { ok(false, 'a report with a logo builds', String(e.message)); return; }
+  ok(logoPdf.includes('/DCTDecode'), 'a logo is embedded as a JPEG image object');
+
+  ok(!moneyPdf.includes('/DCTDecode'),
+    'with no logo and no photos, no image object is emitted at all');
+
+  // A logo that cannot decode must fall back to the R mark, never throw.
+  let fell = null;
+  try {
+    w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'R', logo: { dataUrl: 'data:image/jpeg;base64,!!!', w: 10, h: 10 } });
+  } catch (e) { fell = String(e.message); }
+  ok(!fell, 'a corrupt logo falls back to the R mark instead of throwing', fell || '');
+
+  // --- the contact line is printed ------------------------------------
+  let contactPdf = '';
+  try {
+    contactPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'REHOTEQ Technologies',
+        address: '12 Sapele Road, Benin City', phone: '0803 000 0000',
+        email: 'hello@rehoteq.com' })).toString('latin1');
+  } catch (e) { ok(false, 'a report with a contact line builds', String(e.message)); return; }
+  ok(contactPdf.includes('12 Sapele Road, Benin City'),
+    'the business address is printed under the company name');
+  ok(contactPdf.includes('hello@rehoteq.com'),
+    'the email is printed on the contact line');
+
+  // A long contact line is truncated rather than running into the
+  // right-hand column of the masthead.
+  const longAddr = 'X'.repeat(400);
+  let longPdf = '';
+  try {
+    longPdf = Buffer.from(w.REPORT.buildReport(base, noPhotos, {},
+      { name: 'Toye', company: 'REHOTEQ Technologies', address: longAddr })).toString('latin1');
+  } catch (e) { ok(false, 'a report with a very long address builds', String(e.message)); return; }
+  ok(!longPdf.includes('X'.repeat(400)), 'an over-long contact line is truncated');
+}
+
+/* =====================================================================
    SUITE 3 — live taps
 
    Renders the real screens and dispatches real click events, the way a
@@ -333,6 +421,7 @@ async function suiteTaps(w) {
   await suiteSurface(w);
   suiteWiring(w);
   suiteDomain(w);
+  suiteBranding(w);
   await suiteTaps(w);
 
   console.log('\n' + '-'.repeat(58));
