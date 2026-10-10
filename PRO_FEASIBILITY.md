@@ -68,7 +68,7 @@ documentation cannot be trusted as evidence — which is the theme of this revie
 **Item ⑦ has since been built — see the note at the end.** Remaining total:
 roughly **7–8 working days of development**, plus
 the library content, which is yours to dictate and is the single biggest lever
-on whether any of this is worth ₦2,500 or ₦4,000 a month.
+on whether any of this is worth ₦3,000 a month.
 
 ---
 
@@ -346,8 +346,9 @@ honest claim is the one above.
 > `plan = 'pro'` into IndexedDB, and there is a toggle in Settings that flips
 > any phone to Pro itself, with no card and no trial timer.
 > I have left all of this alone because it is a commercial decision, not a bug.
-> But a customer who pays ₦4,000 for a logo that cannot be uploaded will ask for
-> their money back.
+> ~~But a customer who pays ₦4,000 for a logo that cannot be uploaded will ask
+> for their money back.~~ **Fixed in v1.0.6 — logo upload now exists.** What
+> remains is that the trial and the payment providers it names still do not.
 
 ---
 
@@ -512,38 +513,38 @@ second, and decide then whether it is worth the money at all.
 
 ## Pricing — one decision is blocking
 
-The brief proposes:
+**DECIDED 10 Oct 2026: Pro is ₦3,000 / month, ₦30,000 / year.**
 
-| Plan | Proposed | **Currently locked in the app** |
-|---|---|---|
-| Free | ₦0 | ₦0 / 3 reports ✅ |
-| Pro monthly | ₦2,500 | **₦4,000** |
-| Pro annual | ₦25,000 | **₦40,000** |
-| Team | from ₦10,000/mo | **Business ₦15,000/mo** |
+| Plan | Assessor proposed | Was locked | **Now shipping** |
+|---|---|---|---|
+| Free | ₦0 | ₦0 / 3 reports | ₦0 / 3 reports |
+| Pro monthly | ₦2,500 | ₦4,000 | **₦3,000** |
+| Pro annual | ₦25,000 | ₦40,000 | **₦30,000** (2 months free) |
+| Team / Business | from ₦10,000/mo | ₦15,000/mo | ₦15,000/mo (unchanged — decide separately) |
 
-`SESSION_PROMPT.md` lists pricing as a **locked decision** at ₦4,000 / ₦15,000.
-The Assessor proposes ₦2,500 / ₦25,000 / ₦10,000, and correctly labels those
-"proposed experimental prices, not verified market averages."
+You chose ₦3,000 to make it easy to say yes at the start. That is the right
+instinct for a product with no payment history: the first twenty subscribers
+matter more than the first twenty thousand naira.
 
-**You have to pick one.** I am not going to change it silently, because it is a
-commercial decision with real consequences either way:
+**What ₦3,000 does to the numbers.** Against the ₦4,000 the code assumed, it is
+a 25% cut in revenue per subscriber — so you need roughly 1.33× the subscribers
+to earn the same. Cheap to absorb at this stage, because the cost of serving a
+technician is still near zero: no server, no AI, no storage, no sync. Every
+feature in this brief is offline and on-device. That cost advantage is the
+reason ₦3,000 is affordable at all, and it is worth protecting.
 
-- **₦2,500** buys volume and is easier to say yes to on a job site.
-- **₦4,000** is what the current paywall, the `PLANS` object in `data.js`, and
-  every piece of documentation already assume. Dropping to ₦2,500 is a 37% cut
-  in revenue per subscriber and needs roughly 1.6× the subscribers to break
-  even.
+**Two things to hold the line on:**
 
-**The Assessor's warning is the important part:** before fixing any price, work
-out the cost of serving one technician. Right now that cost is *near zero* —
-there is no server, no AI, no storage, no sync. Every feature in this brief
-(charts excepted) is offline and on-device. That is a genuine cost advantage and
-it is worth protecting.
+- **Do not discount further.** At ₦3,000 the margin already depends on there
+  being no per-user cloud cost. A ₦2,000 price would need volume you do not
+  have yet. Give more away free (raise the 3-report limit) rather than cutting
+  the price.
+- **Anchor on annual.** ₦30,000/yr (two months free) pulls cash forward, which
+  matters more than MRR optics when you are bootstrapping.
 
-**My recommendation:** hold ₦4,000 until there is a backend with a real per-user
-cost, and use the field test to find out whether technicians balk at it. If they
-do, ₦2,500 is a good second experiment — but run it as an actual experiment on
-20 real technicians, not as a guess.
+**The one number that still is not decided: Business at ₦15,000.** The Assessor
+suggested a Team tier from ₦10,000. Nobody has tested either. Leave it until
+someone actually asks for a second seat.
 
 **Separately, and more urgent:** there is no way to take a payment. No Paystack,
 no Flutterwave, no trial timer, and a Settings toggle that grants Pro for free.
@@ -688,8 +689,10 @@ Tests: **52 passed, 0 failed.**
 
 ### Still waiting on you
 
-1. **Pricing** — ₦4,000 (locked, and what the code assumes) or ₦2,500 (the
-   Assessor's proposal). I have not touched it.
+1. ~~**Pricing** — ₦4,000 (locked) or ₦2,500 (the Assessor's proposal).~~
+   **Decided 10 Oct: ₦3,000/month, ₦30,000/year.** Now live in the paywall,
+   `PLANS`, the spec and the prototype. Still open: the **Business tier at
+   ₦15,000**, which nobody has tested.
 2. **Payments** — there is still no way to take money. No Paystack, no
    Flutterwave, no trial timer, and a Settings toggle that grants Pro for
    free. ~2 days, and it is the difference between a product and a hobby.

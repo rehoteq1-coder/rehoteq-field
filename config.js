@@ -33,6 +33,22 @@
     passportUrl: slug => 'https://' + DOMAIN + '/p/' + slugify(slug),
     passportLabel: slug => DOMAIN + '/p/' + slugify(slug),
 
+    /* --- payments -----------------------------------------------------
+       Left empty until the Flutterwave payment links exist. The paywall
+       reads these and hides the pay buttons when they are blank, rather
+       than shipping a button that goes nowhere.
+
+       ⚠️ NEVER put a Flutterwave SECRET key (sk_live_… / sk_test_…) in
+       this file, or anywhere else in this app. It is a static site: every
+       visitor can read this source. A secret key here would let anyone
+       create charges, issue refunds and move money. Only a PUBLIC key
+       (pk_live_…) or a plain payment-link URL belongs in client code.
+       ---------------------------------------------------------------- */
+    payments: {
+      proMonthlyUrl: '',      // Flutterwave payment link — ₦3,000 / month
+      proAnnualUrl: ''        // Flutterwave payment link — ₦30,000 / year
+    },
+
     slugify: slugify
   };
 

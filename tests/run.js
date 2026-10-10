@@ -356,6 +356,69 @@ function suiteBranding(w) {
 }
 
 /* =====================================================================
+   SUITE 2d — pricing and the payment seam
+
+   Two places where a mistake costs real money: the number a customer is
+   shown, and a secret key accidentally shipped to every visitor.
+   ===================================================================== */
+async function suitePricing(w) {
+  describe('2d. Pricing and the payment seam');
+
+  // Decided 10 Oct 2026: Pro is ₦3,000/month, ₦30,000/year.
+  eq(w.DATA.PLANS.pro.price, 3000, 'PLANS.pro is ₦3,000');
+  eq(w.DATA.PLANS.pro.label, '₦3,000/mo', 'PLANS.pro label reads ₦3,000/mo');
+  eq(w.DATA.PLANS.free.price, 0, 'the Free plan is still free');
+
+  ok(w.CONFIG.payments && typeof w.CONFIG.payments === 'object',
+    'CONFIG.payments is the single place payment links live');
+
+  // The paywall is the only screen where a technician sees the number.
+  w.ACT.goPlan();
+  await sleep(40);
+  const sheet = w.document.getElementById('paywall').textContent;
+  ok(sheet.includes('₦3,000'), 'the paywall shows ₦3,000');
+  ok(sheet.includes('₦30,000'), 'the paywall shows the annual ₦30,000');
+  ok(!sheet.includes('₦4,000'), 'the paywall no longer shows the old ₦4,000');
+  ok(!/14-day free trial/.test(sheet),
+    'the paywall does not promise a trial that does not exist');
+  ok(!/Paystack/.test(sheet),
+    'the paywall does not name a payment provider that is not wired up');
+
+  // Every button on the sheet must go somewhere real.
+  const handlers = [...w.document.getElementById('paywall').querySelectorAll('[onclick]')]
+    .map(b => b.getAttribute('onclick'));
+  ok(handlers.length > 0, 'the paywall has buttons');
+  const dead = handlers.filter(h => {
+    const m = /ACT\.(\w+)/.exec(h || '');
+    return !m || typeof w.ACT[m[1]] !== 'function';
+  });
+  ok(dead.length === 0, 'no dead buttons in the paywall', dead.join(', '));
+
+  // Nothing is configured yet, so no payment button may be offered.
+  if (!w.CONFIG.payments.proMonthlyUrl || !w.CONFIG.payments.proAnnualUrl) {
+    ok(!handlers.some(h => (h || '').includes('payMonthly')),
+      'with no payment links set, no Flutterwave button is offered');
+    ok(handlers.some(h => (h || '').includes('subscribe')),
+      'the WhatsApp subscribe route is offered instead');
+  }
+
+  // A secret key in a static PWA is a blank cheque: every visitor can read
+  // this source. Catch it the same way we catch rehoteq.ng.
+  const secrets = [];
+  SHIPPED.forEach(f => {
+    const full = path.join(ROOT, f);
+    if (!fs.existsSync(full)) return;
+    const src = fs.readFileSync(full, 'utf8');
+    if (/\bsk_(live|test)_[A-Za-z0-9]{6,}/.test(src)) secrets.push(f + ' — secret key');
+    if (/\bFLWSECK-[A-Za-z0-9-]{6,}/.test(src)) secrets.push(f + ' — Flutterwave secret');
+  });
+  ok(secrets.length === 0, 'no secret API keys in shipped code', secrets.join('\n      '));
+
+  w.ACT.closePaywall();
+  await sleep(20);
+}
+
+/* =====================================================================
    SUITE 3 — live taps
 
    Renders the real screens and dispatches real click events, the way a
@@ -422,6 +485,7 @@ async function suiteTaps(w) {
   suiteWiring(w);
   suiteDomain(w);
   suiteBranding(w);
+  await suitePricing(w);
   await suiteTaps(w);
 
   console.log('\n' + '-'.repeat(58));

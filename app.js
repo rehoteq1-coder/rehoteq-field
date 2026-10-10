@@ -979,7 +979,23 @@
   };
 
   /* ---------------- paywall ------------------------------------------ */
-  function showPaywall(after) {
+
+  // The paywall must never offer a button that goes nowhere — that is
+  // exactly how 25 dead buttons shipped in v1.0.0. Until both payment
+  // links are configured, it offers the WhatsApp route instead.
+  function payReady() {
+    const p = (window.CONFIG && CONFIG.payments) || {};
+    return !!(p.proMonthlyUrl && p.proAnnualUrl);
+  }
+
+  function openPayment(url, label) {
+    if (!url) return toast('Payments are not connected yet');
+    const win = window.open(url, '_blank');
+    if (!win) return toast('Allow pop-ups to open the payment page');
+    toast('Opening ' + label + '…', 'Paid? Switch Pro on in Settings → Subscription');
+  }
+
+  function showPaywall() {
     const pw = $('paywall');
     pw.innerHTML = `
       <div class="pwsheet">
@@ -991,8 +1007,8 @@
         </div>
         <div class="plan">
           <div class="badge">MOST POPULAR</div>
-          <div class="pr"><span class="amt">₦4,000</span><span class="per">/ month</span></div>
-          <div class="yr">or ₦40,000 / year — 2 months free</div>
+          <div class="pr"><span class="amt">₦3,000</span><span class="per">/ month</span></div>
+          <div class="yr">or ₦30,000 / year — 2 months free</div>
           <div class="feat"><span class="tk">✓</span>Unlimited job cards &amp; PDF reports</div>
           <div class="feat"><span class="tk">✓</span>No watermark — your own logo</div>
           <div class="feat"><span class="tk">✓</span>Quotations that get accepted</div>
@@ -1000,7 +1016,12 @@
           <div class="feat"><span class="tk">✓</span>Offline mode, syncs later</div>
           <div class="feat"><span class="tk">✓</span>All 4 trades + full checklists</div>
         </div>
-        <button class="btn primary" onclick="ACT.upgrade('${after}')">Start 14-day free trial</button>
+        ${payReady() ? `
+          <button class="btn primary" onclick="ACT.payMonthly()">Pay ₦3,000 · one month</button>
+          <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.payAnnual()">
+            ₦30,000 / year — 2 months free</button>`
+        : `
+          <button class="btn primary" onclick="ACT.subscribe()">Subscribe — ₦3,000 / month</button>`}
         <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.closePaywall()">Maybe later</button>
         <div style="background:#fff;border:1px solid var(--line);border-radius:13px;padding:13px;margin-top:14px">
           <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:7px">Also available</div>
@@ -1010,7 +1031,9 @@
           </div>
         </div>
         <div class="center" style="font-size:10px;color:#94A3B8;margin-top:12px;line-height:1.6">
-          No card required for the trial · Cancel anytime<br>Paystack &amp; Flutterwave
+          ${payReady()
+            ? 'Payment opens in Flutterwave. Already paid? Switch Pro on in Settings → Subscription.'
+            : 'Payments open soon — subscribe on WhatsApp and we will switch Pro on for you.'}
         </div>
       </div>`;
     pw.classList.add('show');
@@ -1315,7 +1338,7 @@
     async pdf() {
       const plan = (S.user && S.user.plan) || 'free';
       const used = S.jobs.filter(j => j.status === 'sent' || j.lockedAt).length;
-      if (plan === 'free' && used >= 3) return showPaywall('pdf');
+      if (plan === 'free' && used >= 3) return showPaywall();
       try {
         toast('Building PDF…');
         const blob = await makeReportPdf();
@@ -1343,15 +1366,17 @@
     delQuoteItem(i) { S.quote.items.splice(i, 1); render(); },
     setQuoteItem(i, k, v) { S.quote.items[i][k] = (k === 'desc') ? v : Number(v) || 0; render(); },
 
-    goPlan() { showPaywall('plan'); },
+    goPlan() { showPaywall(); },
     closePaywall() { $('paywall').classList.remove('show'); },
-    upgrade(after) {
-      S.user.plan = 'pro';
-      DB.setMeta('user', S.user);
-      $('paywall').classList.remove('show');
-      toast('Pro unlocked — 14-day trial', 'No card charged. Cancel anytime.');
-      render();
-      if (after === 'pdf') setTimeout(() => ACT.pdf(), 300);
+
+    payMonthly() { openPayment(CONFIG.payments.proMonthlyUrl, 'Flutterwave'); },
+    payAnnual() { openPayment(CONFIG.payments.proAnnualUrl, 'Flutterwave'); },
+
+    subscribe() {
+      const msg = 'Hello REHOTEQ — I would like to subscribe to REHOTEQ Field Pro ' +
+        '(₦3,000 / month). My name is ' + ((S.user && S.user.name) || '') + '.';
+      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+      toast('WhatsApp opened', 'Send the message and we will switch Pro on for you');
     },
     togglePlan(el) {
       S.user.plan = S.user.plan === 'free' ? 'pro' : 'free';

@@ -23,7 +23,8 @@ GitHub Pages via `.github/workflows/deploy.yml` (Pages source = GitHub Actions).
 8. Be honest about what's verified and what isn't. I sometimes paste a message twice; treat it as one.
 
 ## Locked decisions
-Pricing: Free / Pro ₦4,000 per month / Business ₦15,000 per month. The paywall appears at the first "Generate PDF", never at signup. Out of scope: generic invoicing, CRM, school management, scam checker. The full spec is in `REHOTEQ_Field_V1_SPEC.md`.
+Pricing (DECIDED 10 Oct 2026, replacing the old ₦4,000 — do not reintroduce it):
+Free / **Pro ₦3,000 per month** (₦30,000 / year) / Business ₦15,000 per month. The paywall appears at the first "Generate PDF", never at signup. Out of scope: generic invoicing, CRM, school management, scam checker. The full spec is in `REHOTEQ_Field_V1_SPEC.md`.
 
 ## First thing to do
 Clone the repo, run `npm install && npm test`, confirm all 59 checks pass, then ask me where deployment stands and what I found on my last field test.

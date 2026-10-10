@@ -112,7 +112,7 @@ npm install
 npm test
 ```
 
-43 automated checks in four suites: a full walkthrough of every screen and
+66 automated checks in six suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -143,6 +143,26 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.0.7** — **Pro is now ₦3,000 / month, ₦30,000 / year** (was ₦4,000 /
+₦40,000). Changed in one place — `PLANS` in `data.js` — then traced through the
+paywall, the spec and the prototype, because a price that disagrees between the
+screen and the docs is a support ticket you cannot win.
+
+The paywall also stopped lying. It used to say *"Start 14-day free trial"*,
+*"No card required"* and *"Paystack & Flutterwave"* while there was no trial
+timer, no payment provider, and a Settings toggle that granted Pro for free.
+It now shows the real price and routes to a **Flutterwave payment link** once
+one is configured in `config.js` (`payments.proMonthlyUrl` /
+`payments.proAnnualUrl`). Until then it offers a WhatsApp subscribe route —
+**the paywall never renders a payment button that has nowhere to go**, which is
+the same rule that produced the wiring audit.
+
+⚠️ **A Flutterwave secret key must never enter this repository.** It is a
+static site; every visitor can read the source. Only a public key (`pk_live_…`)
+or a plain payment-link URL belongs in client code. There is now a test that
+fails the build if anything matching `sk_live_…` / `sk_test_…` /
+`FLWSECK-…` appears in a shipped file. Cache → v8.
 
 **v1.0.6** — **Every document now looks like it came from a real company.**
 Upload your logo in *Settings → Edit profile* and it is letterboxed onto the
