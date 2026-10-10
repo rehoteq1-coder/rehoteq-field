@@ -43,6 +43,7 @@ That's the whole product in one tap.
 | `report.js` | 376 | Service report + quotation layouts |
 | `qr.js` | 314 | QR encoder (byte mode, ECC-M) for solar passports |
 | `db.js` | 184 | IndexedDB layer — the seam where Supabase plugs in |
+| `WHERE_YOUR_DATA_LIVES.md` | — | **Read this before field use.** Where jobs are stored, how you lose them, and which backup button actually counts |
 | `sw.js` | 42 | Offline caching |
 
 **No dependencies. No build step. No CDN.** Every line runs on the device.
