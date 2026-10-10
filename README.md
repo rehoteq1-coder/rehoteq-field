@@ -113,7 +113,7 @@ npm install
 npm test
 ```
 
-103 automated checks in seven suites: a full walkthrough of every screen and
+107 automated checks in seven suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -144,6 +144,27 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.0.9** — **Prices live in one place, and the paywall stopped advertising
+a price you cannot pay.**
+
+Toye confirmed the numbers: Pro **₦3,000/month**, **₦30,000/year**, Business
+**₦15,000/month**. They were already right — but confirming them exposed two
+defects next to them.
+
+The paywall showed *"or ₦30,000 / year — 2 months free"* under the headline
+price while there was no annual payment link, so **the app was advertising a
+price with no way to buy it** — the same lie the old *"Start 14-day free
+trial"* was. The annual line now appears only when an annual link exists.
+Send the link and it lights up on its own; no code change.
+
+Nine prices were also typed directly onto buttons and into views. That is
+precisely how **₦4,000 outlived its own price change** — the figure was right
+in `data.js` and stale everywhere it had been written a second time. Every
+price on screen now reads from `DATA.PLANS`, and the *"2 months free"* saving
+is calculated from the two prices rather than typed in, so it cannot claim
+two months after the numbers have moved. A test fails if a ₦ figure ever
+appears hardcoded in `app.js` again.
 
 **v1.0.8** — **Real payment links, both WhatsApp lines, and icons instead of
 emoji.**

@@ -7,7 +7,7 @@ REHOTEQ Field, tagline "Diagnose it. Prove it. Get paid." Core flow: Technician 
 - App code is in `pwa/`. The public domain is set in `pwa/config.js` (`field.rehoteq.com`). `pwa/404.html` handles report links (`/v/<ref>`) and QR links (`/p/<id>`).
 - Backup/restore works (merge, not overwrite) and is covered by tests.
 - Fixed: 24 dead buttons (v1.0.1), and printed links pointing at the unowned domain rehoteq.ng (v1.0.2).
-- Tests: `npm install && npm test`, **103 automated checks in 7 suites** (app flow, backup round-trip, button-wiring audit, domain guard). They must pass before anything ships. The GitHub Action runs them and refuses to deploy if they fail.
+- Tests: `npm install && npm test`, **107 automated checks in 7 suites** (app flow, backup round-trip, button-wiring audit, domain guard). They must pass before anything ships. The GitHub Action runs them and refuses to deploy if they fail.
 
 ## Deployment (may still be in progress, so ask me where I've got to)
 GitHub Pages via `.github/workflows/deploy.yml` (Pages source = GitHub Actions). Domain: **field.rehoteq.com**. rehoteq.com is registered at Namecheap but **DNS is on Cloudflare**. Setup needs a GitHub domain-verification TXT record, then a CNAME `field → <username>.github.io` set to **DNS only (grey cloud)**, then Enforce HTTPS. Install on phones **only from field.rehoteq.com**, because data is tied to the address. The domain expires 24 March 2027, so auto-renew must be on.
@@ -27,4 +27,4 @@ Pricing (DECIDED 10 Oct 2026, replacing the old ₦4,000 — do not reintroduce 
 Free / **Pro ₦3,000 per month** (₦30,000 / year) / Business ₦15,000 per month. The paywall appears at the first "Generate PDF", never at signup. Out of scope: generic invoicing, CRM, school management, scam checker. The full spec is in `REHOTEQ_Field_V1_SPEC.md`.
 
 ## First thing to do
-Clone the repo, run `npm install && npm test`, confirm all 103 automated checks pass, then ask me where deployment stands and what I found on my last field test.
+Clone the repo, run `npm install && npm test`, confirm all 107 automated checks pass, then ask me where deployment stands and what I found on my last field test.

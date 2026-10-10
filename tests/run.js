@@ -443,7 +443,29 @@ async function suitePricing(w) {
   await sleep(40);
   const sheet = w.document.getElementById('paywall').textContent;
   ok(sheet.includes('₦3,000'), 'the paywall shows ₦3,000');
-  ok(sheet.includes('₦30,000'), 'the paywall shows the annual ₦30,000');
+  // The annual price is a real offer, but until Flutterwave gives us a link
+  // there is no way to pay it. Showing the price without a button behind it
+  // is the same lie the old "14-day free trial" was, so it stays hidden.
+  const annualLinked = !!w.CONFIG.payments.proAnnualUrl;
+  eq(sheet.includes('₦30,000'), annualLinked,
+    'the paywall shows the annual ₦30,000 iff there is a way to pay it');
+  if (annualLinked) {
+    ok(/2 months free/.test(sheet), 'the annual offer states the saving');
+  } else {
+    ok(!/\/ year/.test(sheet),
+      'with no annual link the paywall advertises no annual price at all');
+  }
+  // The saving is worked out from the two prices, not typed in, so it can
+  // never claim "2 months free" after the numbers have moved.
+  eq(w.CONFIG && w.DATA.PLANS.pro.yearPrice, 30000, 'the annual figure is ₦30,000 in DATA.PLANS');
+  const freeMonths = Math.round(12 - w.DATA.PLANS.pro.yearPrice / w.DATA.PLANS.pro.price);
+  eq(freeMonths, 2, 'the annual price really does give 2 months free');
+  // ...and no price may be typed straight onto a button or into a view,
+  // which is how ₦4,000 outlived its own price change.
+  const appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const typed = (appSrc.match(/₦[0-9][0-9,]{2,}/g) || []);
+  eq(typed.length, 0, 'no price is hardcoded in app.js'
+    + (typed.length ? ' \u2014 found ' + typed.join(', ') : ''));
   ok(!sheet.includes('₦4,000'), 'the paywall no longer shows the old ₦4,000');
   ok(!/14-day free trial/.test(sheet),
     'the paywall does not promise a trial that does not exist');

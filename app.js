@@ -1003,21 +1003,43 @@
     return p.proMonthlyUrl || '';
   }
 
+  // How many months the annual price saves, worked out rather than typed in.
+  // If Toye moves either number the sentence follows it; a hardcoded
+  // "2 months free" would quietly start lying.
+  function monthsFree() {
+    const plan = DATA.PLANS.pro;
+    if (!plan.yearPrice || !plan.price) return 0;
+    return Math.round(12 - plan.yearPrice / plan.price);
+  }
+  // The annual line only appears when there is actually a way to pay it.
+  // Advertising a price with no button behind it is the same lie the old
+  // "Start 14-day free trial" was.
+  function annualLine() {
+    if (!payLink('annual')) return '';
+    const free = monthsFree();
+    return '<div class="yr">or ' + money(DATA.PLANS.pro.yearPrice) + ' / year'
+      + (free > 0 ? ' \u2014 ' + free + ' months free' : '') + '</div>';
+  }
+
   function payBtns() {
     const out = [];
+    const pro = DATA.PLANS.pro, biz = DATA.PLANS.business;
+    const free = monthsFree();
     if (payLink('monthly')) {
-      out.push('<button class="btn primary" onclick="ACT.payMonthly()">Pay ₦3,000 · one month</button>');
+      out.push('<button class="btn primary" onclick="ACT.payMonthly()">Pay ' + money(pro.price) + ' · one month</button>');
     }
     if (payLink('annual')) {
       out.push('<button class="' + (out.length ? 'btn ghost sm" style="margin-top:9px' : 'btn primary') +
-        '" onclick="ACT.payAnnual()">₦30,000 / year — 2 months free</button>');
+        '" onclick="ACT.payAnnual()">' + money(pro.yearPrice) + ' / year'
+        + (free > 0 ? ' — ' + free + ' months free' : '') + '</button>');
     }
     if (payLink('business')) {
       out.push('<button class="btn ghost sm" style="margin-top:9px" onclick="ACT.payBusiness()">' +
-        'Business · ₦15,000 / month</button>');
+        biz.name + ' · ' + money(biz.price) + ' / month</button>');
     }
     if (!out.length) {
-      out.push('<button class="btn primary" onclick="ACT.subscribe()">Subscribe — ₦3,000 / month</button>');
+      out.push('<button class="btn primary" onclick="ACT.subscribe()">Subscribe — '
+        + money(pro.price) + ' / month</button>');
     }
     return out.join('\n        ');
   }
@@ -1041,8 +1063,8 @@
         </div>
         <div class="plan">
           <div class="badge">MOST POPULAR</div>
-          <div class="pr"><span class="amt">₦3,000</span><span class="per">/ month</span></div>
-          <div class="yr">or ₦30,000 / year — 2 months free</div>
+          <div class="pr"><span class="amt">${money(DATA.PLANS.pro.price)}</span><span class="per">/ month</span></div>
+          ${annualLine()}
           <div class="feat"><span class="tk">${ICON('check', 12)}</span>Unlimited job cards &amp; PDF reports</div>
           <div class="feat"><span class="tk">${ICON('check', 12)}</span>No watermark — your own logo</div>
           <div class="feat"><span class="tk">${ICON('check', 12)}</span>Quotations that get accepted</div>
@@ -1055,7 +1077,7 @@
         <div style="background:#fff;border:1px solid var(--line);border-radius:13px;padding:13px;margin-top:14px">
           <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:7px">Also available</div>
           <div style="font-size:12px;line-height:1.6">
-            <b>Business</b> — ₦15,000/mo · 5 technicians · supervisor dashboard<br>
+            <b>${esc(DATA.PLANS.business.name)}</b> — ${money(DATA.PLANS.business.price)}/mo · 5 technicians · supervisor dashboard<br>
             <b>Enterprise</b> — custom · API, SSO, white-label
           </div>
         </div>
@@ -1405,7 +1427,7 @@
 
     subscribe() {
       const msg = 'Hello REHOTEQ — I would like to subscribe to REHOTEQ Field Pro ' +
-        '(₦3,000 / month). My name is ' + ((S.user && S.user.name) || '') + '.';
+        '(' + money(DATA.PLANS.pro.price) + ' / month). My name is ' + ((S.user && S.user.name) || '') + '.';
       window.open(CONFIG.waUrl(msg), '_blank');
       toast('WhatsApp opened', 'Send the message and we will switch Pro on for you');
     },
