@@ -1,0 +1,41 @@
+rules_version = '2';
+
+// =====================================================================
+// REHOTEQ Field — Cloud Storage security rules
+//
+// Holds the photo evidence: before / during / after / serial.
+//
+// Deliberate design choice: photos are stored under the owning user's
+// uid, not under a shared company path. That makes this file trivially
+// simple and obviously correct.
+//
+// The alternative — a shared company path with a Firestore lookup to
+// decide access — is cleverer and has more places to be wrong. Simple
+// rules with no holes beat clever rules with one.
+//
+// Company-wide photo sharing, when it is needed, gets its own designed
+// path. It does not happen by accident here.
+// =====================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // users/{uid}/jobs/{jobId}/{photoId}.jpg
+    //
+    // You may read and write the photos you own. Nothing else.
+    match /users/{uid}/{allPaths=**} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        // An evidence photo is a few MB. Hard cap it so a bug or a
+        // malicious client cannot fill the bucket with one upload.
+        && request.resource.size < 12 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Default deny for everything not explicitly above.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

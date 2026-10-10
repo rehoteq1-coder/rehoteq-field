@@ -216,6 +216,49 @@ paying, and build teams when the eleventh asks for it. Building teams first
 means spending the hardest month of work on a feature with no buyer, and
 discovering afterwards that you guessed the workflow wrong.
 
+## Security rules — written, and waiting on you
+
+`firestore.rules` and `storage.rules` are in the repo. **They do nothing until
+they are deployed.** Rules sitting in a file protect nobody.
+
+Two ways to put them live:
+
+**Console (no tooling).** Firestore → Rules tab → paste `firestore.rules` →
+Publish. Storage → Rules tab → paste `storage.rules` → Publish.
+
+**CLI (better — rules then live in version control and deploy with the app):**
+```
+npm install -g firebase-tools
+firebase login
+firebase init firestore storage      # project: rehoteq-field
+firebase deploy --only firestore:rules,storage:rules
+```
+
+Take the CLI path if you can. Rules that only exist pasted into a console tab
+are rules nobody can review or revert.
+
+### The one rule that makes enforcement real
+
+In `firestore.rules`:
+
+```
+allow update: if isSelf(uid) && !touchesEntitlement();
+```
+
+You may edit your own name, phone, company and logo. You may **not** edit
+`plan`, `trialEndsAt` or `expiresAt` — only the Cloud Function that verified a
+Flutterwave payment writes those.
+
+If the client could set `plan = 'pro'`, we would be straight back to the fake
+enforcement we refused to build in the first place. **That single line is the
+difference between a paywall and a suggestion.**
+
+### A note on Cloud Storage
+
+Photos are stored under `users/{uid}/...`, not a shared company path. That is
+deliberate: it makes the storage rules obviously correct rather than clever.
+Company-wide photo sharing gets designed properly when it is actually needed.
+
 ## What I need from you
 
 1. Create a Firebase project (your Google account).

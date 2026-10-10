@@ -83,6 +83,32 @@
       return '';
     },
 
+    // ------------------------------------------------------------------
+    // Firebase. This block is PUBLIC BY DESIGN — it ships to every
+    // browser, and Google intends it to. It identifies the project; it
+    // does not grant access to anything.
+    //
+    // What actually protects customer data is firestore.rules and
+    // storage.rules. Those are load-bearing. This is not.
+    //
+    // Still worth doing in the Firebase console:
+    //   • restrict the API key to HTTP referrer field.rehoteq.com
+    //   • enable App Check, so only the real app can call the project
+    //   • set a billing budget alert — Cloud Storage is the billable one
+    // ------------------------------------------------------------------
+    firebase: {
+      // Flipped on once the SDK loader and rules are both in place. Until
+      // then the app never fetches Firebase at all, and stays fully
+      // offline-native with no account.
+      enabled: false,
+      apiKey: 'AIzaSyApTJ1tHCUoaFfdPiq2j7j79qOOserw9vY',
+      authDomain: 'rehoteq-field.firebaseapp.com',
+      projectId: 'rehoteq-field',
+      storageBucket: 'rehoteq-field.firebasestorage.app',
+      messagingSenderId: '1083351168714',
+      appId: '1:1083351168714:web:049bc950acd50e6e492633'
+    },
+
     slugify: slugify
   };
 

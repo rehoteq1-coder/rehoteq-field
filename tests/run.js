@@ -695,6 +695,76 @@ async function suiteTaps(w) {
 }
 
 /* =====================================================================
+   SUITE 4 — Firebase security rules
+
+   This is a static lint, not a rules emulator, and it is honest about
+   that. It cannot prove the rules are correct. What it can do is catch
+   the handful of mistakes that would be catastrophic, so they fail here
+   in a test run rather than after real customers exist.
+   ===================================================================== */
+function suiteRules() {
+  describe('4. Firebase security rules');
+
+  const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const db = read('firestore.rules');
+  const st = read('storage.rules');
+
+  ok(/^rules_version\s*=\s*'2'/m.test(db), 'firestore.rules declares rules_version 2');
+  ok(/^rules_version\s*=\s*'2'/m.test(st), 'storage.rules declares rules_version 2');
+
+  // A public read is the whole disaster in one line.
+  eq((db.match(/allow\s+read\s*:\s*if\s+true/g) || []).length, 0,
+    'firestore.rules has no unconditional public read');
+  eq((db.match(/allow\s+write\s*:\s*if\s+true/g) || []).length, 0,
+    'firestore.rules has no unconditional public write');
+  eq((st.match(/allow\s+(read|write)\s*:\s*if\s+true/g) || []).length, 0,
+    'storage.rules has no unconditional public access');
+
+  // Default deny: a collection nobody wrote a rule for must be invisible.
+  ok(/match\s*\/\{document=\*\*\}[\s\S]*allow\s+read,\s*write\s*:\s*if\s+false/.test(db),
+    'firestore.rules ends in a default-deny catch-all');
+  ok(/match\s*\/\{allPaths=\*\*\}[\s\S]*allow\s+read,\s*write\s*:\s*if\s+false/.test(st),
+    'storage.rules ends in a default-deny catch-all');
+
+  // The rule that makes enforcement real rather than decorative.
+  ok(/allow\s+create\s*:\s*if\s+false/.test(db),
+    'clients cannot create their own account record (the server sets the trial clock)');
+  ok(/allow\s+update\s*:\s*if\s+isSelf\(uid\)\s*&&\s*!touchesEntitlement\(\)/.test(db),
+    'a user may edit their profile but never their entitlement');
+  ok(/function\s+entitlementKeys[\s\S]{0,200}'plan'/.test(db),
+    'the entitlement field list includes plan');
+  for (const k of ['trialEndsAt', 'expiresAt']) {
+    ok(db.includes("'" + k + "'"), 'the entitlement field list includes ' + k);
+  }
+
+  // Jobs carry customer PII; they must never be world-readable.
+  const jobBlock = (db.match(/match \/jobs\/\{jobId\}[\s\S]*?\n    \}/) || [''])[0];
+  ok(jobBlock.length > 0, 'firestore.rules has an explicit rule block for jobs');
+  ok(/allow read: if signedIn\(\)/.test(jobBlock), 'jobs are never readable anonymously');
+  ok(/ownerId|assignedTo/.test(jobBlock), 'job access is decided by owner or assignee');
+
+  // Company data: members see it, leads change it.
+  ok(/allow\s+update,\s*delete\s*:\s*if\s+isLeadOf\(companyId\)/.test(db),
+    'only a lead may change a company');
+
+  // Storage: photos live under the owner, 12 MB cap, images only.
+  ok(/match \/users\/\{uid\}\/\{allPaths=\*\*\}/.test(st),
+    'storage paths are scoped under the owning user');
+  ok(/request\.auth\.uid\s*==\s*uid/.test(st), 'a user may only touch their own photos');
+  ok(/request\.resource\.size\s*<\s*12\s*\*\s*1024\s*\*\s*1024/.test(st),
+    'uploads are capped at 12 MB');
+  ok(/contentType\.matches\('image\/\.\*'\)/.test(st), 'only images may be uploaded');
+
+  // The config block is public by design, but it must not carry a secret.
+  const cfg = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+  ok(!/BEGIN PRIVATE KEY/.test(cfg), 'config.js holds no service-account private key');
+  ok(!/service_account/.test(cfg), 'config.js holds no service-account credentials');
+  ok(/firebase:\s*\{/.test(cfg), 'config.js carries the public Firebase web config');
+  ok(/enabled:\s*false/.test(cfg),
+    'Firebase is wired but not yet switched on, so the app stays offline-native');
+}
+
+/* =====================================================================
    run
    ===================================================================== */
 (async () => {
@@ -716,6 +786,7 @@ async function suiteTaps(w) {
   await suitePricing(w);
   await suiteBrief(w);
   await suiteTaps(w);
+  suiteRules();
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);

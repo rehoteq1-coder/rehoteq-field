@@ -116,7 +116,7 @@ npm install
 npm test
 ```
 
-119 automated checks in eight suites: a full walkthrough of every screen and
+143 automated checks in nine suites: a full walkthrough of every screen and
 action, a backup round-trip, and a **wiring audit** that scans every button on
 17 screens and fails if any tap would hit undefined code, and a **domain guard**
 that fails if any printed link points at a domain we don't own. Run it after any change.
@@ -147,6 +147,35 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.1.1** — **Firebase config wired, security rules written.**
+
+The Firebase web config now lives in `config.js` under `firebase`. That block
+is **public by design** — it ships to every browser and Google intends it to.
+It identifies the project; it grants access to nothing.
+
+What actually protects customer data is `firestore.rules` and `storage.rules`,
+both new in this version. They are the whole security model, and they are
+worth reading as a contract rather than boilerplate:
+
+- **You may edit your own profile. You may never edit your own `plan`,
+  `trialEndsAt` or `expiresAt.`** Only the Cloud Function that verified a
+  Flutterwave payment writes those. If the client could set `plan = 'pro'`, we
+  would be straight back to the fake enforcement refused in v1.0.7 — that one
+  line is the difference between a paywall and a suggestion.
+- Job records carry customer names, phones and home addresses, so they are
+  readable only by the owner, the assigned technician, or a company lead.
+- Photos live under `users/{uid}/...` rather than a shared company path, which
+  keeps the storage rules obviously correct instead of clever.
+- Everything ends in default-deny: a new collection is invisible until someone
+  writes a rule for it on purpose.
+
+`firebase.enabled` is **false**. The SDK loader does not exist yet, so the app
+still never fetches Firebase at all and stays fully offline-native.
+
+⚠️ **The rules do nothing until they are deployed.** See
+`FIREBASE_PLAN.md` — console paste, or better, `firebase deploy --only
+firestore:rules,storage:rules` so they live in version control.
 
 **v1.1.0** — **Company bio and the site brief.**
 
