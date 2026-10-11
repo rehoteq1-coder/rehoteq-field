@@ -22,8 +22,26 @@
     fbUser: null,
     // The crew, once TEAM.load() has read it. Owners hold the company and
     // the member list; members hold only their own membership on S.user.
-    team: null
+    team: null,
+    // First-run landing mode: 'individual' technician or 'company' crew.
+    onboardMode: 'individual',
+    draftProfile: null,
+    // V3 fault diagnosis state. Lives separately from S.job so nothing
+    // enters a job card until the technician explicitly confirms a cause.
+    diag: { trade: 'solar', fault: '', code: '', equipment: '', busy: false, result: null }
   };
+
+  function isOwnerEmail(email) {
+    if (window.CONFIG && typeof CONFIG.isOwner === 'function') return CONFIG.isOwner(email);
+    const e = String(email || '').trim().toLowerCase();
+    return e === 'rehoteq@gmail.com' || e === 'rehoteq1@gmail.com';
+  }
+
+  function isOwnerAccount(u, fb) {
+    const user = u !== undefined ? u : S.user;
+    const fbU = fb !== undefined ? fb : S.fbUser;
+    return Boolean((user && isOwnerEmail(user.email)) || (fbU && isOwnerEmail(fbU.email)));
+  }
 
   /* ---------------- account ----------------------------------------
      Sign-in exists only to answer three questions the device cannot
@@ -852,47 +870,544 @@
     return true;
   }
 
+  /* ---------------- V3 fault diagnosis (`DIAG`) -----------------------
+     Spec §7 Layer 3 — the four non-negotiable rules:
+       1. Safety block first, always (hard-coded preamble + guide safety).
+       2. Render as structured cards, never a wall of chat prose.
+       3. Nothing enters the job card until the technician confirms a cause.
+       4. Refuse out of scope (domestic gas, structural, medical, utility HV).
+     And the honesty rule:
+       • Online-only (calls `aiProxy` on the server so the Groq key never
+         ships in this app).
+       • If the curated library has no verified entry for the fault, say so
+         plainly — never guess or invent a fault code.
+     Exposed as window.DIAG so the test suite can verify every rule.
+     ------------------------------------------------------------------ */
+  const DIAG_SAFETY = {
+    solar: 'ISOLATE FIRST: Switch off AC supply and inverter before opening any panel. PV strings stay live in daylight — cover panels or open the DC isolator before touching terminations. Remove rings, watches and bangles.',
+    electrical: 'ISOLATE FIRST: Switch off at the main isolator, lock off, and prove dead with a tested meter on every conductor before opening the DB board or touching terminations.',
+    cctv: 'ISOLATE FIRST: Disconnect camera and NVR power before re-terminating. Use a stable ladder and never work at height in rain, wind or near overhead mains.',
+    networking: 'ISOLATE FIRST: Never run data cable in the same conduit as mains power. Never look into an open fibre connector or open the ISP ONT.'
+  };
+
+  const DIAG_OUT_OF_SCOPE = [
+    {
+      id: 'gas',
+      re: /\b(gas\s+(leak|cylinder|cooker|pipe|smell|burner|valve|line)|lpg|cooking\s+gas|butane|propane)\b/i,
+      specialist: 'licensed gas / LPG technician',
+      tellCustomer: 'Ventilate the area immediately, do not operate any electrical switch or inverter, close the cylinder valve if safe, and call a licensed LPG/gas technician.'
+    },
+    {
+      id: 'structural',
+      re: /\b(structural\s+crack|roof\s+collaps|load[- ]bearing\s+wall|building\s+sinking|foundation\s+crack|slab\s+collaps)\b/i,
+      specialist: 'licensed structural / civil engineer',
+      tellCustomer: 'Stop work and keep load off the roof or wall until a licensed structural engineer has inspected and cleared the building.'
+    },
+    {
+      id: 'medical',
+      re: /\b(medical\s+(device|equipment)|life[- ]support|ventilator|dialysis|defibrillator|x[- ]ray\s+machine|patient\s+monitor|icu\s+equipment)\b/i,
+      specialist: 'licensed biomedical engineer',
+      tellCustomer: 'Clinical and life-support equipment requires a manufacturer-certified biomedical engineer. Do not open or modify the medical unit.'
+    },
+    {
+      id: 'utility_hv',
+      re: /\b(11\s*kv|33\s*kv|high[- ]voltage\s+line|transformer\s+pole|overhead\s+ht|disco\s+pole|nepa\s+pole|phcn\s+pole|street\s+transformer)\b/i,
+      specialist: 'DISCO / licensed high-voltage linesman',
+      tellCustomer: 'Keep everyone clear of the pole or transformer and report the fault directly to the electricity distribution company (DISCO).'
+    }
+  ];
+
+  const DIAG_STOP = new Set([
+    'the', 'and', 'for', 'with', 'when', 'from', 'that', 'this', 'have', 'has',
+    'not', 'are', 'was', 'were', 'but', 'all', 'any', 'can', 'out', 'off', 'into',
+    'only', 'one', 'two', 'after', 'before', 'what', 'why', 'how', 'customer',
+    'says', 'said', 'very', 'some', 'more', 'than', 'its', 'there', 'their',
+    'on', 'in', 'to', 'at', 'by', 'or', 'is', 'it', 'no', 'so', 'up', 'do', 'if',
+    'my', 'we', 'be', 'as', 'an', 'of', 'channel', 'unit', 'system', 'work', 'working'
+  ]);
+  const DIAG_SHORT = new Set(['ac', 'dc', 'pv', 'db', 'ir', 'ap', 'ip', 'tv', 'ht']);
+
+  function diagTrade(t) {
+    const s = String(t || '').toLowerCase().trim();
+    return DIAG_SAFETY[s] ? s : 'solar';
+  }
+
+  function diagTokens(str) {
+    return String(str || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(/\s+/)
+      .filter(w => (w.length >= 3 || DIAG_SHORT.has(w)) && !DIAG_STOP.has(w));
+  }
+
+  function diagTokMatch(hay, needle) {
+    for (let i = 0; i < hay.length; i++) {
+      const h = hay[i];
+      if (h === needle) return true;
+      if (needle.length >= 5 && h.length >= 5 && (h.startsWith(needle.slice(0, 5)) || needle.startsWith(h.slice(0, 5)))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function diagClassifySafety(input) {
+    const trade = diagTrade(input && input.trade);
+    const text = [
+      (input && input.fault) || '',
+      (input && input.code) || '',
+      (input && input.equipment) || ''
+    ].join(' ');
+    for (let i = 0; i < DIAG_OUT_OF_SCOPE.length; i++) {
+      const r = DIAG_OUT_OF_SCOPE[i];
+      if (r.re.test(text)) {
+        return {
+          outOfScope: true,
+          category: r.id,
+          specialist: r.specialist,
+          message: 'This needs a ' + r.specialist + '. Here is what to tell your customer.',
+          tellCustomer: r.tellCustomer,
+          safety: [DIAG_SAFETY[trade], r.tellCustomer]
+        };
+      }
+    }
+    return { outOfScope: false, safety: [DIAG_SAFETY[trade]] };
+  }
+
+  function diagRetrieve(query) {
+    const trade = diagTrade(query && query.trade);
+    const rawCode = String((query && query.code) || '').trim().toUpperCase();
+    const text = [
+      (query && query.fault) || '',
+      (query && query.code) || '',
+      (query && query.equipment) || ''
+    ].join(' ');
+    const qTokens = diagTokens(text);
+    if (!rawCode && !qTokens.length) return [];
+
+    const scored = [];
+    DATA.LIBRARY.forEach(entry => {
+      const entryCode = String(entry.code || '').trim().toUpperCase();
+      const exactCode = Boolean(rawCode && entryCode && rawCode === entryCode) ||
+        Boolean(entryCode && qTokens.includes(entryCode.toLowerCase()));
+      if (entry.trade !== trade && !exactCode) return;
+
+      let score = 0;
+      if (exactCode) score += 50;
+
+      const symTokens = diagTokens(entry.symptom + ' ' + entry.cat);
+      const causeTitleTokens = diagTokens((entry.causes || []).map(c => c.t).join(' '));
+      const causeDescTokens = diagTokens((entry.causes || []).map(c => c.d).join(' '));
+
+      let primaryHits = 0;
+      qTokens.forEach(tok => {
+        if (diagTokMatch(symTokens, tok)) { score += 6; primaryHits++; }
+        else if (diagTokMatch(causeTitleTokens, tok)) { score += 5; primaryHits++; }
+        else if (diagTokMatch(causeDescTokens, tok)) { score += 2; }
+      });
+      if (primaryHits >= 2) score += 4;
+      if ((exactCode || primaryHits >= 1) && score >= 6) {
+        scored.push({ entry: entry, score: score });
+      }
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 3).map(s => s.entry);
+  }
+
+  function diagPrependSafety(trade, guideSafety, modelSafety) {
+    const t = diagTrade(trade);
+    const out = [DIAG_SAFETY[t]];
+    if (guideSafety && String(guideSafety).trim()) out.push(String(guideSafety).trim());
+    if (Array.isArray(modelSafety)) {
+      modelSafety.forEach(s => {
+        const clean = String(s || '').trim();
+        if (clean && !out.includes(clean)) out.push(clean);
+      });
+    }
+    return out;
+  }
+
+  function diagValidateSchema(obj, candidates) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+    const allowedIds = (candidates || []).map(c => c.id);
+    const guideId = obj.matched_guide_id || (allowedIds[0] || '');
+    if (allowedIds.length && !allowedIds.includes(guideId)) return false;
+    if (!Array.isArray(obj.possible_causes) || !obj.possible_causes.length || obj.possible_causes.length > 6) return false;
+    for (let i = 0; i < obj.possible_causes.length; i++) {
+      const c = obj.possible_causes[i];
+      if (!c || typeof c !== 'object') return false;
+      if (typeof c.t !== 'string' || !c.t.trim()) return false;
+      if (!['HIGH', 'MED', 'LOW'].includes(c.p)) return false;
+      if (typeof c.d !== 'string' || !c.d.trim()) return false;
+    }
+    if (!Array.isArray(obj.checks) || !obj.checks.length) return false;
+    for (let i = 0; i < obj.checks.length; i++) {
+      if (typeof obj.checks[i] !== 'string' || !obj.checks[i].trim()) return false;
+    }
+    if (!Array.isArray(obj.parts)) return false;
+    for (let i = 0; i < obj.parts.length; i++) {
+      const p = obj.parts[i];
+      if (!p || typeof p.d !== 'string' || !p.d.trim() || typeof p.price !== 'number' || p.price < 0) return false;
+    }
+    if (typeof obj.confidence !== 'number' || obj.confidence < 0 || obj.confidence > 1) return false;
+    if (typeof obj.escalate_to_human !== 'boolean') return false;
+    return true;
+  }
+
+  function diagFromGuide(guide, trade, fallback) {
+    const t = diagTrade(trade || (guide && guide.trade));
+    const escalate = /EMERGENCY|do not re-energise|fire service/i.test((guide && guide.safety) || '');
+    return {
+      ok: true,
+      status: 'diagnosed',
+      trade: t,
+      fallback: Boolean(fallback),
+      matched_guide_id: guide.id,
+      symptom: guide.symptom,
+      cat: guide.cat,
+      code: guide.code || '',
+      source: guide.source || 'REHOTEQ field data',
+      possible_causes: (guide.causes || []).map(c => ({
+        t: String(c.t),
+        p: ['HIGH', 'MED', 'LOW'].includes(c.p) ? c.p : 'MED',
+        d: String(c.d)
+      })),
+      checks: (guide.checks || []).map(String),
+      safety: diagPrependSafety(t, guide.safety, []),
+      parts: (guide.parts || []).map(p => ({ d: String(p.d), price: Number(p.price) || 0 })),
+      confidence: 0.85,
+      escalate_to_human: escalate
+    };
+  }
+
+  const DIAG = {
+    MANDATORY_SAFETY: DIAG_SAFETY,
+    classifySafety: diagClassifySafety,
+    retrieve: diagRetrieve,
+    prependSafety: diagPrependSafety,
+    validateSchema: diagValidateSchema,
+    fromGuide: diagFromGuide,
+    state: () => S.diag,
+
+    async diagnose(query, opts) {
+      const o = opts || {};
+      const isOnline = typeof o.online === 'boolean' ? o.online : S.online;
+      if (!isOnline) {
+        return { ok: false, error: 'offline' };
+      }
+
+      const trade = diagTrade((query && query.trade) || S.diag.trade || S.trade);
+      const fault = String((query && query.fault !== undefined ? query.fault : S.diag.fault) || '').trim();
+      const code = String((query && query.code !== undefined ? query.code : S.diag.code) || '').trim();
+      const equipment = String((query && query.equipment !== undefined ? query.equipment : S.diag.equipment) || '').trim();
+
+      S.diag.trade = trade;
+      S.diag.fault = fault;
+      S.diag.code = code;
+      S.diag.equipment = equipment;
+
+      if (!fault && !code) {
+        return { ok: false, error: 'empty' };
+      }
+
+      // 1. Out-of-scope safety classifier runs before anything else.
+      const safetyCheck = diagClassifySafety({ trade: trade, fault: fault, code: code, equipment: equipment });
+      if (safetyCheck.outOfScope) {
+        const refused = {
+          ok: true,
+          status: 'refused',
+          trade: trade,
+          category: safetyCheck.category,
+          specialist: safetyCheck.specialist,
+          message: safetyCheck.message,
+          tellCustomer: safetyCheck.tellCustomer,
+          safety: safetyCheck.safety,
+          possible_causes: [],
+          checks: [],
+          parts: [],
+          confidence: 0,
+          escalate_to_human: true
+        };
+        S.diag.result = refused;
+        await DB.queue({ type: 'ai.request', outcome: 'refused_out_of_scope', trade: trade, fault: fault, code: code });
+        return { ok: true, result: refused };
+      }
+
+      // 2. Curated library gate — if no verified entry exists, say so plainly and never guess.
+      const candidates = diagRetrieve({ trade: trade, fault: fault, code: code, equipment: equipment });
+      if (!candidates.length) {
+        const noMatch = {
+          ok: true,
+          status: 'no_match',
+          trade: trade,
+          matched_guide_id: null,
+          message: 'We have no verified entry for this fault in the REHOTEQ library yet — we will not guess on live equipment.',
+          safety: [DIAG_SAFETY[trade]],
+          possible_causes: [],
+          checks: [
+            'Isolate the supply and prove dead before opening any enclosure.',
+            'Photograph the nameplate, model number, and any error code shown on the unit.',
+            'Record your meter readings on the job card so this fault can be reviewed and added to the library.'
+          ],
+          parts: [],
+          confidence: 0,
+          escalate_to_human: true
+        };
+        S.diag.result = noMatch;
+        await DB.queue({ type: 'ai.request', outcome: 'no_verified_entry', trade: trade, fault: fault, code: code });
+        return { ok: true, result: noMatch };
+      }
+
+      // 3. Call the server proxy (`aiProxy`) when reachable; validate strict schema
+      //    and prepend the mandatory safety block. Fall back to the verified guide
+      //    if the proxy is unreachable or returns invalid JSON.
+      const fetchFn = o.fetch || (typeof window.fetch === 'function' ? window.fetch.bind(window) : null);
+      const endpoint = CONFIG.ai && CONFIG.ai.endpoint;
+      let finalResult = null;
+
+      if (fetchFn && endpoint) {
+        try {
+          const res = await fetchFn(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              trade: trade,
+              fault: fault,
+              code: code,
+              equipment: equipment,
+              uid: (S.fbUser && S.fbUser.uid) || (S.user && S.user.uid) || null
+            })
+          });
+          if (res && res.ok) {
+            const remote = await res.json();
+            if (remote && remote.status === 'refused') {
+              remote.safety = diagPrependSafety(trade, '', remote.safety);
+              finalResult = remote;
+            } else if (remote && remote.status === 'no_match') {
+              remote.safety = diagPrependSafety(trade, '', remote.safety);
+              finalResult = remote;
+            } else if (remote && diagValidateSchema(remote, candidates)) {
+              const matched = candidates.find(c => c.id === remote.matched_guide_id) || candidates[0];
+              finalResult = {
+                ok: true,
+                status: 'diagnosed',
+                trade: trade,
+                fallback: Boolean(remote.fallback),
+                matched_guide_id: matched.id,
+                symptom: matched.symptom,
+                cat: matched.cat,
+                code: matched.code || '',
+                source: matched.source || 'REHOTEQ field data',
+                possible_causes: remote.possible_causes.map(c => ({
+                  t: c.t.trim(),
+                  p: c.p,
+                  d: c.d.trim()
+                })),
+                checks: remote.checks.map(c => c.trim()),
+                safety: diagPrependSafety(trade, matched.safety, remote.safety),
+                parts: remote.parts.map(p => ({ d: p.d.trim(), price: Number(p.price) || 0 })),
+                confidence: Math.round(remote.confidence * 100) / 100,
+                escalate_to_human: Boolean(remote.escalate_to_human)
+              };
+            }
+          }
+        } catch (e) {
+          finalResult = null;
+        }
+      }
+
+      if (!finalResult) {
+        finalResult = diagFromGuide(candidates[0], trade, true);
+      }
+
+      S.diag.result = finalResult;
+      await DB.queue({
+        type: 'ai.request',
+        outcome: finalResult.fallback ? 'fallback_library' : finalResult.status,
+        trade: trade,
+        fault: fault,
+        code: code,
+        matchedGuideId: finalResult.matched_guide_id || null
+      });
+      return { ok: true, result: finalResult };
+    },
+
+    // Nothing enters the job card until the technician confirms a specific cause.
+    async confirmCause(index) {
+      const res = S.diag && S.diag.result;
+      if (!res || res.status !== 'diagnosed' || !Array.isArray(res.possible_causes)) {
+        return { ok: false, error: 'noresult' };
+      }
+      const cause = res.possible_causes[Number(index)];
+      if (!cause) return { ok: false, error: 'nocause' };
+
+      const diagText = cause.t + ' — ' + cause.d;
+      const faultText = (S.diag.fault || res.symptom || '') +
+        (S.diag.code ? ' (' + S.diag.code + ')' : (res.code ? ' (' + res.code + ')' : ''));
+      const pricedParts = (res.parts || []).filter(p => p.price > 0)
+        .map(p => ({ desc: p.d, qty: 1, unitPrice: p.price }));
+
+      let mode = 'created';
+      let targetView = 'newjob';
+
+      if (S.job && !S.job.lockedAt) {
+        mode = 'updated';
+        targetView = 'jobcard';
+        S.job.diagnosis = diagText;
+        if (!S.job.fault && faultText) S.job.fault = faultText;
+        if ((!S.job.materials || !S.job.materials.length) && pricedParts.length) {
+          S.job.materials = pricedParts;
+        }
+        await saveJob();
+      } else {
+        S.job = await newJob();
+        S.job.trade = S.diag.trade || res.trade || S.trade;
+        S.job.fault = faultText;
+        S.job.diagnosis = diagText;
+        S.job.materials = pricedParts;
+        if (S.diag.equipment) S.job.equipment.model = S.diag.equipment;
+        await saveJob();
+      }
+
+      await DB.queue({
+        type: 'ai.confirm',
+        guideId: res.matched_guide_id,
+        cause: cause.t,
+        jobId: S.job.id
+      });
+      return { ok: true, mode: mode, view: targetView, job: S.job, cause: cause };
+    },
+
+    // Test seam: toggles S.online inside the closure so the suite can
+    // verify the real offline and online screens without duplicating state.
+    _setOnline(on) { S.online = Boolean(on); render(); }
+  };
+  window.DIAG = DIAG;
+
   /* ---------------- views ------------------------------------------- */
   const V = {};
 
-  V.boot = () => `
-    <div class="pad" style="padding-top:52px">
-      <div class="center" style="margin-bottom:28px">
-        <div style="width:64px;height:64px;border-radius:19px;margin:0 auto 14px;
-          background:linear-gradient(145deg,#0E7C5A,#0A5C42);display:grid;place-items:center;
-          box-shadow:0 14px 32px rgba(14,124,90,.3)">
-          <span style="font-size:26px;font-weight:800;color:#fff">R</span></div>
-        <div style="font-size:24px;font-weight:800;letter-spacing:-.03em">REHOTEQ <span style="color:#0E7C5A">Field</span></div>
-        <div style="font-size:12.5px;color:#64748B;margin-top:6px;line-height:1.6">Diagnose it. Prove it. Get paid.</div>
+  V.boot = () => {
+    const u = S.user || S.draftProfile || {};
+    const isEditing = Boolean(S.user && S.user.name);
+    const mode = S.onboardMode || 'individual';
+    const showDocFields = Boolean(S.user || mode === 'company');
+    const logoObj = (S.user && S.user.logo) || (S.draftProfile && S.draftProfile.logo) || null;
+    return `
+    <div class="pad" style="padding-top:${isEditing ? '24px' : '18px'}">
+      ${!isEditing ? `
+        <div class="hero-land">
+          <div class="eyebrow">${ICON('shield-check', 12)} Field Engineering OS · Works Offline</div>
+          <div class="h-top">
+            <div class="h-sq">R</div>
+            <div>
+              <div class="h-title">REHOTEQ Field</div>
+              <div class="h-tag">Diagnose it. Prove it. Get paid.</div>
+            </div>
+          </div>
+          <div class="h-lead">
+            Built for Solar, Electrical, CCTV &amp; Networking technicians and engineering companies.
+            Turn every site visit into tamper-evident photo proof, a signed PDF service report,
+            a quotation, and a QR solar passport on WhatsApp.
+          </div>
+          <div class="land-metrics">
+            <div><b>4 Trades</b><span>Solar · Elec · CCTV · Net</span></div>
+            <div><b>${DATA.LIBRARY.length} Guides + AI</b><span>Grounded fault cards</span></div>
+            <div><b>PDF + QR</b><span>Stamped for WhatsApp</span></div>
+          </div>
+          <div class="hero-actions">
+            <button class="btn-hero solid" onclick="ACT.loadDemo()">${ICON('play', 14)} See a live PDF report</button>
+            <button class="btn-hero translucent" onclick="ACT.go('library')">${ICON('book-open', 14)} Browse ${DATA.LIBRARY.length} guides</button>
+          </div>
+        </div>
+
+        <div class="land-preview">
+          <div class="lp-hdr">
+            <div>
+              <div style="font-size:9.5px;font-weight:800;letter-spacing:.08em;color:var(--primary);text-transform:uppercase">
+                What your customer receives
+              </div>
+              <div style="font-size:13.5px;font-weight:800;color:var(--ink);margin-top:2px">
+                Stamped A4 Service Report &amp; Quotation PDF
+              </div>
+            </div>
+            <span class="tag code">RF-2026-00184</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--muted);line-height:1.5">
+            Every photo is compressed to ≤ 350 KB with date, GPS coordinates, and your name burned into the pixels — locked by dual signatures and a SHA-256 hash chain.
+          </div>
+          <div class="lp-pills">
+            <span class="lp-pill">${ICON('camera', 12)} GPS + Time Stamped</span>
+            <span class="lp-pill">${ICON('lock', 12)} Dual Signatures</span>
+            <span class="lp-pill">${ICON('brain', 12)} Safety-First AI</span>
+            <span class="lp-pill">${ICON('qr-code', 12)} QR Solar Passport</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;padding-top:9px;border-top:1px solid var(--line)">
+            ${DATA.TRADES.map(t => `<span class="chip grey" style="margin:0;font-size:10.5px;padding:4px 8px">${tradeIcon(t.id, 13)} ${esc(t.name)}</span>`).join('')}
+          </div>
+        </div>
+
+        <div class="sec" style="margin-top:4px">How are you starting today?</div>
+        <div class="role-tabs">
+          <button class="role-tab ${mode === 'individual' ? 'on' : ''}" onclick="ACT.setOnboardMode('individual')">
+            <div class="rt-top">${ICON('user', 18)} ${mode === 'individual' ? ICON('check', 15) : ''}</div>
+            <div class="rt-t">Individual Technician</div>
+            <div class="rt-d">Solo engineer or freelancer · your name &amp; brand on every PDF</div>
+          </button>
+          <button class="role-tab ${mode === 'company' ? 'on' : ''}" onclick="ACT.setOnboardMode('company')">
+            <div class="rt-top">${ICON('building-2', 18)} ${mode === 'company' ? ICON('check', 15) : ''}</div>
+            <div class="rt-t">As a Company / Crew</div>
+            <div class="rt-d">Engineering firm · company stamp, 5-seat crew &amp; job dispatch</div>
+          </button>
+        </div>` : `
+        <div class="center" style="margin-bottom:22px">
+          <div style="width:56px;height:56px;border-radius:17px;margin:0 auto 10px;
+            background:linear-gradient(145deg,#0E7C5A,#0A5C42);display:grid;place-items:center;
+            box-shadow:0 12px 28px rgba(14,124,90,.28)">
+            <span style="font-size:23px;font-weight:800;color:#fff">R</span></div>
+          <div style="font-size:21px;font-weight:800;letter-spacing:-.03em">REHOTEQ <span style="color:#0E7C5A">Field</span></div>
+          <div style="font-size:12px;color:#64748B;margin-top:4px">Edit your technician &amp; business profile</div>
+        </div>`}
+
+      <div class="card" style="margin-bottom:12px">
+        <div class="ch">${mode === 'company' ? 'Company &amp; lead details' : 'Technician profile'}</div>
+        <div class="cb">
+          <div class="field"><label class="fl">${mode === 'company' ? 'Your name (owner / lead)' : 'Your name'}</label>
+            <input id="iName" placeholder="Toye Adewale" value="${esc(u.name || '')}"></div>
+          <div class="field"><label class="fl">Phone / WhatsApp</label>
+            <input id="iPhone" inputmode="tel" placeholder="0803 000 0000" value="${esc(u.phone || '')}"></div>
+          <div class="field"><label class="fl">Main trade</label>
+            <select id="iTrade">${DATA.TRADES.map(t =>
+              `<option value="${t.id}" ${(u.trade === t.id) || (!u.trade && t.id === 'solar') ? 'selected' : ''}>${t.name}</option>`
+            ).join('')}</select></div>
+          <div class="field" style="${!showDocFields ? '' : 'margin-bottom:0'}">
+            <label class="fl">${mode === 'company' ? 'Company name (printed on all crew PDFs)' : 'Business name (optional)'}</label>
+            <input id="iCompany" placeholder="REHOTEQ Technologies" value="${esc(u.company || '')}"></div>
+          ${!showDocFields ? `
+            <div class="field" style="margin-bottom:0"><label class="fl">Email (optional)</label>
+              <input id="iEmail" inputmode="email" placeholder="hello@rehoteq.com" value="${esc(u.email || '')}"></div>` : ''}
+        </div>
       </div>
-      <div class="field"><label class="fl">Your name</label>
-        <input id="iName" placeholder="Toye Adewale" value="${esc((S.user && S.user.name) || '')}"></div>
-      <div class="field"><label class="fl">Phone</label>
-        <input id="iPhone" inputmode="tel" placeholder="0803 000 0000" value="${esc((S.user && S.user.phone) || '')}"></div>
-      <div class="field"><label class="fl">Main trade</label>
-        <select id="iTrade">${DATA.TRADES.map(t =>
-          `<option value="${t.id}" ${(S.user && S.user.trade === t.id) || (!S.user && t.id === 'solar') ? 'selected' : ''}>${t.name}</option>`
-        ).join('')}</select></div>
-      <div class="field"><label class="fl">Business name (optional)</label>
-        <input id="iCompany" placeholder="REHOTEQ Technologies" value="${esc((S.user && S.user.company) || '')}"></div>
-      ${S.user ? `
-        <div class="sec" style="margin:16px 0 2px">Printed on every document</div>
+
+      ${showDocFields ? `
+        <div class="sec" style="margin:14px 0 6px">Printed on every document</div>
         <div class="card" style="margin-bottom:12px"><div class="cb">
           <div class="field"><label class="fl">Business address</label>
-            <input id="iAddress" placeholder="12 Sapele Road, Benin City" value="${esc(S.user.address || '')}"></div>
+            <input id="iAddress" placeholder="12 Sapele Road, Benin City" value="${esc(u.address || '')}"></div>
           <div class="field"><label class="fl">Email (optional)</label>
-            <input id="iEmail" inputmode="email" placeholder="hello@rehoteq.com" value="${esc(S.user.email || '')}"></div>
+            <input id="iEmail" inputmode="email" placeholder="hello@rehoteq.com" value="${esc(u.email || '')}"></div>
           <div class="field"><label class="fl">Bank details (printed on quotations)</label>
-            <input id="iBank" placeholder="GTBank · 0123456789 · REHOTEQ Technologies" value="${esc(S.user.bank || '')}"></div>
+            <input id="iBank" placeholder="GTBank · 0123456789 · REHOTEQ Technologies" value="${esc(u.bank || '')}"></div>
           <div class="field"><label class="fl">About your business (printed on quotations)</label>
             <textarea id="iBio" maxlength="300" rows="3"
               placeholder="We design, install and maintain solar and inverter systems across Ondo State — 8 years, 400+ installations."
-              >${esc(S.user.bio || '')}</textarea>
+              >${esc(u.bio || '')}</textarea>
             <div class="hintline">Two or three lines. It goes on every quotation you send.</div></div>
           <div class="field" style="margin-bottom:0"><label class="fl">Logo</label>
-            ${S.user.logo ? `
+            ${logoObj ? `
               <div style="display:flex;align-items:center;gap:10px">
-                <img src="${esc(S.user.logo.dataUrl)}" alt=""
+                <img src="${esc(logoObj.dataUrl)}" alt=""
                   style="width:52px;height:52px;object-fit:contain;background:#F1F5F9;border-radius:10px">
                 <div style="flex:1;font-size:11.5px;color:var(--muted);line-height:1.5">
                   Appears on every report and quotation.</div>
@@ -906,20 +1421,36 @@
                 and travels inside your backup.</div>`}
           </div>
         </div></div>` : ''}
-      <button class="btn primary" style="margin-top:6px" onclick="ACT.saveProfile()">${S.user ? 'Save profile' : 'Get started'}</button>
+
+      <button class="btn primary" style="margin-top:6px" onclick="ACT.saveProfile()">
+        ${isEditing ? 'Save profile' : mode === 'company' ? 'Start as a Company' : 'Start as Individual Technician'}
+      </button>
+      ${!isEditing ? `
+        <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.openTeamJoin()">
+          ${ICON('inbox', 15)} Joining a crew? Import your invite file
+        </button>` : ''}
       <div class="center" style="font-size:10.5px;color:#94A3B8;margin-top:14px;line-height:1.6">
         No account needed. Everything is stored on this device until you choose to sync.
       </div>
     </div>`;
+  };
 
   V.home = () => {
     const plan = (S.user && S.user.plan) || 'free';
+    const owner = isOwnerAccount();
     // Company work is covered by the crew's subscription, so it never
     // burns the technician's own free reports.
     const used = S.jobs.filter(j => (j.status === 'sent' || j.lockedAt) && !companyJob(j)).length;
-    const limit = plan === 'free' ? 3 : -1;
+    const limit = (!owner && plan === 'free') ? 3 : -1;
     const pct = limit < 0 ? 0 : Math.min(100, (used / limit) * 100);
     const cont = S.jobs.filter(j => !j.lockedAt && j.status !== 'sent').slice(0, 2);
+    const meterText = owner
+      ? 'Owner — all plans unlocked (' + plan.toUpperCase() + ')'
+      : plan === 'business'
+        ? 'Business — unlimited reports & crew'
+        : plan === 'pro'
+          ? 'Pro — unlimited reports'
+          : used + ' of 3 free reports used';
     return `
       <div class="pad">
         <button class="btn primary" style="padding:18px;font-size:16px" onclick="ACT.startJob()">▶&nbsp; START A JOB</button>
@@ -936,7 +1467,7 @@
           </div>`).join('')}</div>` : ''}
         <div class="meter" onclick="ACT.goPlan()">
           <div>${ICON('file-text', 20)}</div>
-          <div class="lab"><b>${plan === 'free' ? used + ' of 3 free reports used' : 'Pro — unlimited reports'}</b>
+          <div class="lab"><b>${esc(meterText)}</b>
             <div class="bar"><i style="width:${pct}%"></i></div></div>
           <div style="color:#94A3B8">›</div>
         </div>
@@ -974,8 +1505,8 @@
           <span class="d">QR + warranty</span></button>
         <button class="tile locked" onclick="ACT.toast('Equipment ID','Ships in V2 — point the camera, get the model')">
           <span class="lock">V2</span><span class="ic">${ICON('scan-line', 22)}</span><span class="t">Identify equipment</span><span class="d">From a photo</span></button>
-        <button class="tile locked" onclick="ACT.toast('AI fault diagnosis','Ships in V3, once we have the job corpus to train it on')">
-          <span class="lock">V3</span><span class="ic">${ICON('brain', 22)}</span><span class="t">Diagnose a fault</span><span class="d">AI-ranked causes</span></button>
+        <button class="tile" onclick="ACT.openDiagnose()">
+          <span class="ic">${ICON('brain', 22)}</span><span class="t">Diagnose a fault</span><span class="d">AI-ranked · online</span></button>
         <button class="tile locked" onclick="ACT.toast('Voice copilot','Ships in V4 — speak, get a finished job card')">
           <span class="lock">V4</span><span class="ic">${ICON('mic', 22)}</span><span class="t">Ask by voice</span><span class="d">Hands-free</span></button>
         <button class="tile" onclick="ACT.go('settings')"><span class="ic">${ICON('settings-2', 22)}</span><span class="t">Settings</span>
@@ -986,6 +1517,129 @@
         Change it on the home screen.
       </div>
     </div>`;
+
+  V.diagnose = () => {
+    const d = S.diag || { trade: S.trade || 'solar', fault: '', code: '', equipment: '', busy: false, result: null };
+    const r = d.result;
+    return `
+      <div class="pad">
+        ${!S.online ? `
+          <div class="warnbox">
+            <div class="wh">${ICON('cloud-off', 14)} Offline — AI diagnosis needs a connection</div>
+            <div class="wt">AI fault ranking runs through the REHOTEQ server proxy so the API key never ships on a phone. While offline, use the curated troubleshooting library below — it works with no signal.</div>
+            <button class="btn ghost sm" style="margin-top:10px" onclick="ACT.go('library')">
+              ${ICON('book-open', 15)} Open offline troubleshooting library</button>
+          </div>` : `
+          <div class="banner b-ok">
+            <b>${ICON('cloud', 14)} Online-only · Grounded in verified REHOTEQ guides.</b>
+            Nothing enters your job card until you confirm a cause. If the library has no verified entry for this fault, it says so — it never guesses.
+          </div>`}
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch">Fault details</div>
+          <div class="cb">
+            <div class="field"><label class="fl">Trade</label>
+              <select id="dTrade" onchange="ACT.setDiag('trade',this.value)">
+                ${DATA.TRADES.map(t =>
+                  `<option value="${t.id}" ${(d.trade || S.trade) === t.id ? 'selected' : ''}>${t.name}</option>`
+                ).join('')}
+              </select></div>
+            <div class="field"><label class="fl">Fault code or equipment (optional)</label>
+              <input id="dCode" placeholder="E03 · SMS-II 6.2K" value="${esc(d.code || '')}"
+                oninput="ACT.setDiag('code',this.value)"></div>
+            <div class="field" style="margin-bottom:10px"><label class="fl">What is happening on site?</label>
+              <div class="fieldwrap">
+                <textarea id="dFault" rows="3" placeholder="Inverter shuts down when the fridge or borehole pump starts. Battery reads 51 V open circuit."
+                  oninput="ACT.setDiag('fault',this.value)">${esc(d.fault || '')}</textarea>
+                <button class="mic" onclick="ACT.voiceDiag(this)" title="Dictate">${ICON('mic', 16)}</button>
+              </div></div>
+            <div class="btnrow">
+              ${r ? `<button class="btn ghost sm" style="flex:1" onclick="ACT.clearDiag()">Clear</button>` : ''}
+              <button class="btn primary sm" style="flex:2" onclick="ACT.runDiagnose()" ${!S.online || d.busy ? 'disabled' : ''}>
+                ${ICON('brain', 15)} ${d.busy ? 'Diagnosing…' : 'Diagnose fault'}</button>
+            </div>
+          </div>
+        </div>
+        ${r && r.status === 'refused' ? `
+          <div class="warnbox">
+            <div class="wh">${ICON('alert-triangle', 14)} Out of scope — ${esc(r.specialist)}</div>
+            <div class="wt">${esc((r.safety && r.safety[0]) || '')}</div>
+          </div>
+          <div class="card" style="margin-bottom:12px">
+            <div class="ch">What to tell your customer</div>
+            <div class="cb">
+              <div style="font-size:13px;font-weight:680;line-height:1.45;margin-bottom:6px">${esc(r.message)}</div>
+              <div style="font-size:12.5px;color:var(--muted);line-height:1.55">${esc(r.tellCustomer)}</div>
+            </div>
+          </div>` : ''}
+        ${r && r.status === 'no_match' ? `
+          <div class="warnbox">
+            <div class="wh">${ICON('alert-triangle', 14)} Safety first</div>
+            <div class="wt">${esc((r.safety && r.safety[0]) || DIAG_SAFETY[d.trade || 'solar'])}</div>
+          </div>
+          <div class="card" style="margin-bottom:12px">
+            <div class="ch">No verified entry in the library</div>
+            <div class="cb">
+              <div style="font-size:13.5px;font-weight:700;line-height:1.4;margin-bottom:6px">
+                ${esc(r.message)}
+              </div>
+              <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:10px">
+                REHOTEQ Field only ranks causes from faults seen and verified on real jobs. Safe baseline checks before you proceed:
+              </div>
+              ${(r.checks || []).map((c, i) => `<div class="step"><div class="sn">${i + 1}</div><div>${esc(c)}</div></div>`).join('')}
+              <div class="btnrow" style="margin-top:12px">
+                <button class="btn ghost sm" style="flex:1" onclick="ACT.go('library')">${ICON('book-open', 14)} Browse library</button>
+                <button class="btn primary sm" style="flex:1" onclick="ACT.startJob()">${ICON('clipboard-list', 14)} Blank job card</button>
+              </div>
+            </div>
+          </div>` : ''}
+        ${r && r.status === 'diagnosed' ? `
+          <div class="warnbox">
+            <div class="wh">${ICON('alert-triangle', 14)} Safety first</div>
+            <div class="wt">${(r.safety || []).map(s => `<div style="margin-bottom:6px">${esc(s)}</div>`).join('')}</div>
+          </div>
+          ${r.escalate_to_human ? `
+            <div class="warnbox">
+              <div class="wh">${ICON('alert-triangle', 14)} Stop and escalate if unsafe</div>
+              <div class="wt">High-risk condition flagged. Do not re-energise until the fault is physically cleared and verified with a meter.</div>
+            </div>` : ''}
+          <div class="card" style="margin-bottom:12px">
+            <div class="ch">Ranked causes <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#0E7C5A">
+              ${r.possible_causes.length} verified · ${Math.round((r.confidence || 0.85) * 100)}% match</span></div>
+            <div class="cb">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+                Matched guide: <b>${esc(r.symptom || r.matched_guide_id)}</b>${r.code ? ' · code ' + esc(r.code) : ''}
+                ${r.fallback ? ' · local verified fallback' : ' · ranked by AI proxy'}
+              </div>
+              ${r.possible_causes.map((c, i) => `
+                <div class="cause" style="flex-direction:column;gap:6px;padding:11px 0">
+                  <div style="display:flex;gap:10px;align-items:flex-start">
+                    <div class="n">${i + 1}</div>
+                    <div style="flex:1"><div class="c1">${esc(c.t)}</div><div class="c2">${esc(c.d)}</div></div>
+                    <span class="prob ${c.p === 'HIGH' ? '' : 'med'}">${esc(c.p)}</span>
+                  </div>
+                  <button class="btn ghost sm" style="margin-top:4px" onclick="ACT.confirmCause(${i})">
+                    ${ICON('check', 14)} Confirm cause — use on job card</button>
+                </div>`).join('')}
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:12px">
+            <div class="ch">Check in this order</div>
+            <div class="cb">
+              ${(r.checks || []).map((c, i) => `<div class="step"><div class="sn">${i + 1}</div><div>${esc(c)}</div></div>`).join('')}
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:12px">
+            <div class="ch">Parts typically needed</div>
+            <div class="cb">
+              ${(r.parts || []).map(p => `<div class="matrow"><span>${esc(p.d)}</span>
+                <span class="p">${p.price ? money(p.price) : '—'}</span></div>`).join('')}
+            </div>
+          </div>
+          <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.6;padding-bottom:10px">
+            Nothing enters your job card until you tap <b>Confirm cause</b> on the cause you verified on site.
+          </div>` : ''}
+      </div>`;
+  };
 
   V.library = () => {
     const q = (S.search || '').toLowerCase();
@@ -1162,6 +1816,7 @@
         ${text('recommendation', '5 · Recommendation', 'What should happen next — this is where the next job comes from')}
         <button class="btn ghost sm" onclick="ACT.go('checklist')">
           ${ICON('list-checks', 15)} Checklist ${j.checklist ? '· ' + j.checklist.items.filter(i => i.passed).length + '/' + j.checklist.items.length : ''}</button>
+        ${!locked ? `<button class="btn ghost sm" style="margin-top:10px" onclick="ACT.openDiagnose()">${ICON('brain', 15)} Diagnose a fault · online</button>` : ''}
         ${myRole() === 'owner' && !j.lockedAt && !j.assignedTo && teamState().members.length
           ? `<button class="btn ghost sm" style="margin-top:10px" onclick="ACT.assignJob()">${ICON('send', 15)} Assign to crew</button>` : ''}
         ${isMine(j)
@@ -1427,6 +2082,7 @@
   V.settings = () => {
     const u = S.user || {};
     const plan = u.plan || 'free';
+    const owner = isOwnerAccount();
     return `
       <div class="pad">
         <div class="card" style="margin-bottom:12px">
@@ -1458,9 +2114,21 @@
         ${accountCard()}
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Subscription</div>
+          ${owner ? `
+            <div class="cb" style="padding-bottom:6px">
+              <div class="banner b-ok" style="margin-bottom:8px">
+                <b>${ICON('shield-check', 14)} Owner access (${esc((u.email || (S.fbUser && S.fbUser.email) || 'rehoteq@gmail.com').toLowerCase())}).</b>
+                All plans (Free, Pro &amp; Business) are permanently unlocked on this account. Switch active plan mode below at any time:
+              </div>
+              <div class="plan-pills">
+                <button class="plan-pill ${plan === 'free' ? 'on' : ''}" onclick="ACT.setPlan('free')">Free</button>
+                <button class="plan-pill ${plan === 'pro' ? 'on' : ''}" onclick="ACT.setPlan('pro')">Pro</button>
+                <button class="plan-pill ${plan === 'business' ? 'on' : ''}" onclick="ACT.setPlan('business')">Business</button>
+              </div>
+            </div>` : ''}
           <div class="srow"><span class="si">${ICON('star', 17)}</span>
             <span class="sl">Plan<br><span style="font-size:11px;color:var(--muted);font-weight:500">
-              ${plan === 'free' ? 'Free · 3 reports/month' : 'Pro · unlimited'}</span></span>
+              ${owner ? 'Owner · all plans unlocked (' + esc(plan) + ')' : plan === 'business' ? 'Business · 5 seats & unlimited' : plan === 'free' ? 'Free · 3 reports/month' : 'Pro · unlimited'}</span></span>
             <button class="switch ${plan !== 'free' ? 'on' : ''}" onclick="ACT.togglePlan(this)"></button></div>
           <div class="srow" onclick="ACT.goPlan()"><span class="si">${ICON('credit-card', 17)}</span>
             <span class="sl">Plans &amp; pricing</span><span style="color:#94A3B8">›</span></div>
@@ -1918,7 +2586,7 @@
     const v = S.view;
     const titles = {
       home: null, actions: tradeName(S.trade), library: 'Troubleshooting',
-      libdetail: 'Guide', newjob: 'New job card',
+      libdetail: 'Guide', diagnose: 'Diagnose a fault', newjob: 'New job card',
       jobcard: S.job ? S.job.ref : 'Job card', checklist: 'Checklist',
       photos: 'Job evidence', signoff: 'Sign-off', report: 'Service report',
       quote: 'Quotation', jobs: 'My jobs', settings: 'Settings', passport: 'Solar passport',
@@ -2000,12 +2668,61 @@
   /* ---------------- actions ------------------------------------------ */
   const ACT = {
     go, toast,
+    isOwner: () => isOwnerAccount(),
+
+    setOnboardMode(mode) {
+      const pick = id => { const el = $(id); return el ? el.value : null; };
+      const cur = Object.assign({}, S.draftProfile || {}, S.user || {});
+      if (pick('iName') !== null) cur.name = pick('iName');
+      if (pick('iPhone') !== null) cur.phone = pick('iPhone');
+      if (pick('iTrade') !== null) cur.trade = pick('iTrade');
+      if (pick('iCompany') !== null) cur.company = pick('iCompany');
+      if (pick('iEmail') !== null) cur.email = pick('iEmail');
+      if (pick('iAddress') !== null) cur.address = pick('iAddress');
+      if (pick('iBank') !== null) cur.bank = pick('iBank');
+      if (pick('iBio') !== null) cur.bio = pick('iBio');
+      S.draftProfile = cur;
+      S.onboardMode = mode === 'company' ? 'company' : 'individual';
+      render();
+    },
+
+    async openTeamJoin() {
+      if (!S.user || !S.user.name) {
+        const nameEl = $('iName');
+        const phoneEl = $('iPhone');
+        const tradeEl = $('iTrade');
+        const name = (nameEl && nameEl.value.trim()) || 'Technician';
+        const phone = (phoneEl && phoneEl.value.trim()) || '';
+        const trade = (tradeEl && tradeEl.value) || 'solar';
+        S.user = {
+          uid: uid(), name: name, phone: phone, trade: trade,
+          company: 'REHOTEQ Technologies', plan: 'free',
+          bank: '', address: '', email: '', logo: null, bio: ''
+        };
+        await DB.setMeta('user', S.user);
+      }
+      go('team');
+      ACT.receiveFile();
+    },
+
+    async setPlan(plan) {
+      if (!['free', 'pro', 'business'].includes(plan)) return;
+      S.user = S.user || {};
+      S.user.plan = plan;
+      if (isOwnerAccount(S.user, S.fbUser)) S.user.ownerAccess = true;
+      await DB.setMeta('user', S.user);
+      render();
+      toast('Plan set to ' + plan.charAt(0).toUpperCase() + plan.slice(1),
+        isOwnerAccount(S.user, S.fbUser) ? 'Owner access — all plans unlocked' : '');
+    },
 
     async saveProfile() {
       const name = $('iName').value.trim();
       if (!name) return toast('Enter your name');
-      const prev = S.user || {};
+      const prev = S.user || S.draftProfile || {};
+      const wasCompanyMode = S.onboardMode === 'company';
       S.user = {
+        uid: prev.uid || uid(),
         name: name, phone: $('iPhone').value.trim(), trade: $('iTrade').value,
         company: $('iCompany').value.trim() || 'REHOTEQ Technologies',
         plan: prev.plan || 'free',
@@ -2015,21 +2732,38 @@
         email: prev.email || '', logo: prev.logo || null,
         bio: prev.bio || ''
       };
+      if (prev.memberOf) S.user.memberOf = prev.memberOf;
       // the document fields are only rendered when editing an existing
-      // profile, so read them defensively rather than assuming they exist
+      // profile or starting in company mode, so read them defensively
       const pick = id => { const el = $(id); return el ? el.value.trim() : null; };
       if (pick('iAddress') !== null) S.user.address = pick('iAddress');
       if (pick('iEmail') !== null) S.user.email = pick('iEmail');
       if (pick('iBank') !== null) S.user.bank = pick('iBank');
       if (pick('iBio') !== null) S.user.bio = pick('iBio');
+
+      if (isOwnerAccount(S.user, S.fbUser)) {
+        S.user.ownerAccess = true;
+        if (!prev.plan || prev.plan === 'free') S.user.plan = 'business';
+      }
+
       S.trade = S.user.trade;
+      S.draftProfile = null;
+      S.onboardMode = 'individual';
       await DB.setMeta('user', S.user);
+      if (wasCompanyMode && TEAM.role() === 'none') {
+        await TEAM.createCompany();
+      }
       await refreshJobs();
       await refreshEquipment();
       go('home');
+      if (isOwnerAccount(S.user, S.fbUser)) {
+        toast('Welcome, Owner', 'All plans (Free, Pro & Business) are unlocked for ' + S.user.email);
+      } else if (wasCompanyMode) {
+        toast('Company workspace ready', S.user.company + ' stamp is set for your crew');
+      }
     },
 
-    async editProfile() { S.user = S.user || {}; go('boot'); },
+    async editProfile() { S.onboardMode = 'individual'; S.user = S.user || {}; go('boot'); },
 
     pickLogo() {
       const input = document.createElement('input');
@@ -2183,14 +2917,97 @@
     },
 
     back() {
-      const order = ['actions', 'library', 'newjob', 'jobcard', 'checklist', 'photos', 'signoff', 'report', 'quote'];
+      const hasProfile = Boolean(S.user && S.user.name);
       const map = {
-        actions: 'home', library: 'home', libdetail: 'library', newjob: 'actions',
+        actions: 'home', library: hasProfile ? 'home' : 'boot', libdetail: 'library',
+        diagnose: (S.job && !S.job.lockedAt) ? 'jobcard' : 'actions',
+        newjob: 'actions',
         jobcard: 'newjob', checklist: 'jobcard', photos: 'jobcard', signoff: 'photos',
-        report: 'signoff', quote: 'report', passport: 'home',
-        team: 'settings', teamjob: 'team', company: 'team'
+        report: hasProfile ? 'signoff' : 'boot', quote: 'report', passport: 'home',
+        team: hasProfile ? 'settings' : 'boot', teamjob: 'team', company: 'team'
       };
-      go(map[S.view] || 'home');
+      go(map[S.view] || (hasProfile ? 'home' : 'boot'));
+    },
+
+    /* --- V3 fault diagnosis ----------------------------------------- */
+    openDiagnose() {
+      S.diag.trade = (S.job && S.job.trade) || S.trade || 'solar';
+      if (S.job && !S.job.lockedAt && S.job.fault && !S.diag.fault) {
+        S.diag.fault = S.job.fault;
+      }
+      go('diagnose');
+    },
+    setDiag(key, val) {
+      S.diag[key] = val;
+      if (key === 'trade') render();
+    },
+    clearDiag() {
+      S.diag.fault = '';
+      S.diag.code = '';
+      S.diag.equipment = '';
+      S.diag.result = null;
+      render();
+    },
+    voiceDiag(btn) {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) return toast('Voice typing is not supported here', 'Chrome on Android works best');
+      const rec = new SR();
+      rec.lang = 'en-NG'; rec.interimResults = false; rec.maxAlternatives = 1;
+      btn.classList.add('rec');
+      rec.onresult = e => {
+        const said = e.results[0][0].transcript;
+        S.diag.fault = (S.diag.fault ? S.diag.fault + ' ' : '') + said;
+        render();
+        toast('Added', said);
+      };
+      rec.onerror = () => toast('Could not hear you', 'Check microphone permission');
+      rec.onend = () => btn.classList.remove('rec');
+      rec.start();
+    },
+    async runDiagnose() {
+      if (!S.online) {
+        return toast('You are offline', 'AI diagnosis needs a connection — use the offline Troubleshooting library');
+      }
+      const fEl = $('dFault'), cEl = $('dCode'), tEl = $('dTrade');
+      if (fEl) S.diag.fault = fEl.value.trim();
+      if (cEl) S.diag.code = cEl.value.trim();
+      if (tEl) S.diag.trade = tEl.value;
+      if (!S.diag.fault && !S.diag.code) {
+        return toast('Describe the fault first', 'Enter what the customer reported or the error code');
+      }
+      S.diag.busy = true;
+      render();
+      try {
+        const r = await DIAG.diagnose({
+          trade: S.diag.trade,
+          fault: S.diag.fault,
+          code: S.diag.code,
+          equipment: S.diag.equipment
+        });
+        S.diag.busy = false;
+        render();
+        if (!r.ok) {
+          if (r.error === 'offline') return toast('You are offline', 'Use the offline Troubleshooting library');
+          return toast('Describe the fault first');
+        }
+        if (r.result.status === 'refused') {
+          return toast('Out of scope', 'Requires a ' + r.result.specialist);
+        }
+        if (r.result.status === 'no_match') {
+          return toast('No verified entry in the library', 'We do not guess on live equipment');
+        }
+        toast('Diagnosis ready', 'Confirm the cause you verify on site before it enters the job card');
+      } catch (e) {
+        S.diag.busy = false;
+        render();
+        toast('Could not run diagnosis', String((e && e.message) || e));
+      }
+    },
+    async confirmCause(index) {
+      const r = await DIAG.confirmCause(index);
+      if (!r.ok) return toast('Pick a verified cause first');
+      go(r.view);
+      toast('Cause confirmed — added to job card', r.cause.t);
     },
 
     // Was inline as "S.passportEq=null;render()" — neither S nor render is
@@ -2225,7 +3042,7 @@
     async pdf() {
       const plan = (S.user && S.user.plan) || 'free';
       const used = S.jobs.filter(j => (j.status === 'sent' || j.lockedAt) && !companyJob(j)).length;
-      if (plan === 'free' && used >= 3 && !companyJob(S.job)) return showPaywall();
+      if (!isOwnerAccount() && plan === 'free' && used >= 3 && !companyJob(S.job)) return showPaywall();
       try {
         toast('Building PDF…');
         const blob = await makeReportPdf();
@@ -2863,11 +3680,23 @@
   // is off, none of this runs and the app is untouched by any of it.
   if (window.FB && window.FB.enabled()) {
     window.FB.finishRedirect().then(function (u) {
-      if (u) S.fbUser = u;
+      if (u) {
+        S.fbUser = u;
+        if (isOwnerAccount(S.user, u) && S.user) {
+          S.user.ownerAccess = true;
+          if (!S.user.plan || S.user.plan === 'free') S.user.plan = 'business';
+          DB.setMeta('user', S.user);
+        }
+      }
     }).catch(function () { /* no redirect pending, carry on */ });
     window.FB.onUser(function (u) {
       S.fbUser = u;
-      if (S.view === 'settings') render();
+      if (u && isOwnerAccount(S.user, u) && S.user) {
+        S.user.ownerAccess = true;
+        if (!S.user.plan || S.user.plan === 'free') S.user.plan = 'business';
+        DB.setMeta('user', S.user);
+      }
+      if (S.view === 'settings' || S.view === 'home') render();
     });
   }
 

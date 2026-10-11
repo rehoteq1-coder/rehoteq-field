@@ -80,6 +80,20 @@ That's the whole product in one tap.
   supervisor dashboard with monitoring. All of it travels as files over
   WhatsApp; 5 seats included, extra seats self-declared after payment and
   reconciled at sync
+- ✅ **In-app AI diagnosis (V3, grounded & online-only)** — unlocks the
+  Diagnose screen (`V.diagnose`), retrieves against the curated REHOTEQ
+  library, calls Groq via `aiProxy` with a strict JSON card schema, prepends
+  the mandatory isolation/safety block first, refuses out-of-scope hazards,
+  never guesses when the library has no verified entry, and never writes to
+  the job card until the technician confirms a cause
+- ✅ **Field-grade Landing & Onboarding (`V.boot`)** — dark-emerald showcase
+  masthead with live 1-tap PDF demo and fault-library preview before signup,
+  customer output preview card, and dedicated onboarding modes for
+  **Individual Technicians** and **Companies / Crews** (automatically
+  initializing the company stamp & crew workspace)
+- ✅ **Owner all-plans entitlement (`rehoteq@gmail.com`)** — permanent owner
+  access across Free, Pro, and Business both in the PWA and in
+  `createAccount` Cloud Function, with a 1-tap plan switcher in Settings
 
 ---
 
@@ -121,12 +135,16 @@ npm install
 npm test
 ```
 
-283 automated checks in eleven suites: a full walkthrough of every screen and
+399 automated checks in thirteen suites: a full walkthrough of every screen and
 action, a backup round-trip, a **wiring audit** that scans every button on
-20 screens and fails if any tap would hit undefined code, a **domain guard**
-that fails if any printed link points at a domain we don't own, and a team
+21 screens and fails if any tap would hit undefined code, a **domain guard**
+that fails if any printed link points at a domain we don't own, a team
 suite that runs invite → join → assign → update → dashboard through the real
-functions with two simulated phones. Run it after any change.
+functions with two simulated phones, an AI diagnosis suite covering
+`aiProxy`, `DIAG`, out-of-scope refusals, the no-verified-entry honesty gate,
+human-in-the-loop cause confirmation, and secret-key protections, and a
+landing & owner-entitlement suite verifying Individual vs Company onboarding
+and `rehoteq@gmail.com` access to all plans. Run it after any change.
 
 Two things are harness limits, not app bugs: jsdom has no canvas backend and
 never decodes images, and `fake-indexeddb` destroys `Blob` instances on clone —
@@ -154,6 +172,55 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.4.0** — **In-app AI fault diagnosis (V3): grounded in the curated library, safety block first, cards out, human-confirmed.**
+
+Unlocks the V3 **Diagnose a fault** tile (`V.diagnose` + `window.DIAG`) and
+adds the `aiProxy` Cloud Function (`functions/index.js` + `functions/library.js`).
+Every non-negotiable from §7 Layer 3 of the spec is enforced in code and
+verified by Suite 7 (85 new checks):
+
+1. **Out-of-scope classifier runs first.** Domestic gas/LPG, structural work,
+   medical/life-support equipment, and utility high-voltage lines are refused
+   before any lookup or model call, naming the required licensed specialist
+   and what to tell the customer.
+2. **Never guesses when the library has no verified entry.** `aiProxy` and
+   `DIAG` retrieve against `DATA.LIBRARY` first. If no verified guide matches
+   the fault, the app says so plainly (*"We have no verified entry for this
+   fault in the REHOTEQ library yet — we will not guess on live equipment"*)
+   and never calls Groq to invent causes or fault codes.
+3. **Cards out, never chat prose.** Groq (`llama-3.3-70b-versatile`) is called
+   with a strict JSON schema (`possible_causes`, `checks`, `safety`, `parts`,
+   `confidence`, `escalate_to_human`, `matched_guide_id`), validated against
+   the retrieved library candidates, retried once on schema failure, and
+   backed by a deterministic fallback to the verified library entry.
+4. **Safety block first, always.** A hard-coded per-trade isolation/discharge
+   preamble plus the matched guide's `safety` block is prepended to every
+   diagnosis response ahead of any cause or check.
+5. **Online-only, stated plainly — and nothing enters the job card until the
+   technician confirms a cause.** Running a diagnosis never touches `S.job`.
+   Only tapping **Confirm cause — use on job card** on a specific cause writes
+   it into `S.job.diagnosis`.
+6. **Key protections, logging, and offline draft tool.** Every `aiProxy` call
+   logs to `ai_requests` in Firestore (`firestore.rules` forbids client writes
+   or edits to `ai_requests`). `tools/draft-guide.js` (`npm run draft`) lets
+   you turn rough dictated job notes into a validated `DATA.LIBRARY` draft
+   using `GROQ_API_KEY` from your terminal environment. Also includes
+   `SPONSORSHIP.md` and `AI_NEXT_SESSION.md`.
+7. **Landing showcase (Individual vs Company) & Owner all-plans access.**
+   Rebuilt `V.boot` so a visiting technician or engineering firm sees a full
+   field-engineering showcase, customer output preview, 1-tap live PDF report
+   demo, and offline fault library before creating an account — then chooses
+   **Individual Technician** or **As a Company / Crew** (which sets up the
+   company stamp and crew workspace automatically). Also grants
+   `rehoteq@gmail.com` permanent owner access to all plans (Free, Pro &
+   Business) in `config.js`, `app.js`, and `functions/index.js`.
+
+Files changed: `functions/index.js`, `functions/library.js` (new),
+`firestore.rules`, `config.js`, `app.js`, `styles.css`,
+`tools/draft-guide.js` (new), `AI_NEXT_SESSION.md` (new),
+`SPONSORSHIP.md` (new), `tests/run.js`, `sw.js` (v20), `package.json`,
+`README.md`. Tests: **399 checks in thirteen suites**.
 
 **v1.3.0** — **Business crews, offline edition: company stamp, invite codes, assignment and a dashboard — all over WhatsApp files.**
 
