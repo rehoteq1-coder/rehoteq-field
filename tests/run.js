@@ -191,7 +191,7 @@ async function suiteIcons(w) {
   // views and assert none of them leaks one.
   const names = Object.keys(w.ICONS).filter(n => n.length > 3);
   const leaks = [];
-  for (const v of ['home', 'library', 'jobs', 'settings', 'passport']) {
+  for (const v of ['home', 'library', 'jobs', 'settings', 'passport', 'team', 'company']) {
     w.ACT.go(v);
     await sleep(40);
     const text = w.document.body.textContent || '';
@@ -912,6 +912,317 @@ async function suiteFirebase(w) {
 }
 
 /* =====================================================================
+   SUITE 6 — team: Business crews over WhatsApp files
+
+   The whole round trip through the real functions: the owner creates a
+   company, invites a technician, and assigns a job; the technician joins,
+   works it, and sends an update back; the dashboard tells the truth. The
+   two phones are simulated with TEAM._testAs, because S is a closure and
+   the alternative is testing copies instead of the real thing.
+   ===================================================================== */
+async function snapTeam(w) {
+  return {
+    user: await w.DB.getMeta('user'),
+    company: await w.DB.getMeta('company'),
+    members: await w.DB.getMeta('teamMembers'),
+    invites: await w.DB.getMeta('teamInvites'),
+    seats: await w.DB.getMeta('teamSeats')
+  };
+}
+async function restoreTeam(w, s) {
+  await w.DB.setMeta('user', s.user);
+  await w.DB.setMeta('company', s.company);
+  await w.DB.setMeta('teamMembers', s.members);
+  await w.DB.setMeta('teamInvites', s.invites);
+  await w.DB.setMeta('teamSeats', s.seats);
+  w.TEAM._testAs(s.user);
+  await w.TEAM.load();
+}
+
+async function suiteTeam(w) {
+  describe('6. Team — Business crews over WhatsApp files');
+  const T = w.TEAM;
+
+  ok(typeof T === 'object' && T !== null, 'window.TEAM is exposed to the page');
+  if (!T) return;
+
+  eq(w.DATA.PLANS.business.seats, 5, 'Business covers 5 seats');
+  eq(w.DATA.PLANS.business.extraSeat, 2500, 'an extra seat is priced in DATA.PLANS');
+
+  // Photo records with no image data must degrade, never throw. (jsdom
+  // cannot round-trip real photo bytes, so this is the seam we can hold.)
+  let packThrew = null, packRes = null;
+  try { packRes = await T.unpackPhotos([{ id: 'TPX1', jobId: 'JOBT1', image: null }]); }
+  catch (e) { packThrew = String(e.message); }
+  ok(!packThrew, 'a photo record with no image data unpacks without throwing', packThrew || '');
+  eq(packRes && packRes.noImage, 1, '...and is counted as imageless');
+  eq((await T.packPhotos('NO-SUCH-JOB')).length, 0, 'a job with no photos packs to an empty list');
+
+  // --- the owner ------------------------------------------------------
+  // A real profile through the real screen, the way a thumb does it.
+  w.ACT.editProfile();
+  await sleep(80);
+  w.document.getElementById('iName').value = 'Owner Oga';
+  w.document.getElementById('iPhone').value = '0803 111 2222';
+  w.document.getElementById('iCompany').value = 'Oga & Sons';
+  await w.ACT.saveProfile();
+  await sleep(80);
+  await T.load();
+  eq(T.role(), 'none', 'a fresh profile runs no crew');
+  ok(!!(await w.DB.getMeta('user')).uid, 'saving a profile mints the uid invites point at');
+
+  const created = await T.createCompany();
+  ok(created.ok, 'the owner creates a company');
+  eq(T.role(), 'owner', '...and becomes its owner');
+  eq((await w.DB.getMeta('company')).name, 'Oga & Sons', 'the company takes its name from the profile');
+  eq((await T.createCompany()).error, 'exists', 'creating a second company is refused');
+
+  const prof = T.docProfile();
+  eq(prof.company, 'Oga & Sons', 'documents carry the company stamp');
+  eq(prof.name, 'Owner Oga', '...but the personal name stays the sender\u2019s own');
+
+  const inv = await T.makeInvite();
+  ok(inv.ok, 'the owner makes an invite');
+  ok(/^RQ-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(inv.file.code),
+    'the invite code is short and phone-readable (' + inv.file.code + ')');
+  eq(inv.file.format, 'rehoteq-field-team', 'the invite is a team file');
+  eq(inv.file.kind, 'invite', '...of kind invite');
+  eq(inv.file.branding.name, 'Oga & Sons', 'the invite carries the company stamp');
+  eq((await T.applyInvite(inv.file)).error, 'runscrew', 'a crew cannot join a crew');
+  eq((await T.applyInvite({ format: 'nope' })).error, 'notinvite', 'a non-invite is refused as such');
+
+  const ownerSnap1 = await snapTeam(w);
+  const companyId = ownerSnap1.company.id;
+
+  // --- the technician's phone -----------------------------------------
+  const techUser = { name: 'Tech Boy', phone: '0803 333 4444', trade: 'solar', company: '', plan: 'free', uid: 'TECHPHONE1' };
+  T._testAs(techUser);
+  const joined = await T.applyInvite(inv.file);
+  ok(joined.ok, 'the technician joins from the invite file');
+  eq(joined.company, 'Oga & Sons', '...the right company');
+  eq(T.role(), 'member', '...and becomes a member');
+  eq((await w.DB.getMeta('user')).memberOf.branding.name, 'Oga & Sons', 'membership is persisted');
+  const accept = T.acceptanceFile();
+  eq(accept.kind, 'acceptance', 'joining produces an acceptance file');
+  eq(accept.code, inv.file.code, 'the acceptance carries the invite code for matching');
+  eq(accept.member.memberId, 'TECHPHONE1', '...and the technician\u2019s own uid');
+  eq((await T.applyInvite(inv.file)).error, 'already', 'joining twice is refused');
+  await T.markAcceptanceSent();
+  eq((await w.DB.getMeta('user')).memberOf.sent, true, 'sending the acceptance is recorded');
+  const techMember = JSON.parse(JSON.stringify(await w.DB.getMeta('user')));
+  // applyRemoval deletes memberOf from whatever object it is handed, so the
+  // screen test below needs its own copy.
+  const techMemberScreen = JSON.parse(JSON.stringify(techMember));
+
+  // --- back on the owner's phone --------------------------------------
+  await restoreTeam(w, ownerSnap1);
+  const took = await T.applyAcceptance(accept);
+  ok(took.ok, 'the owner takes the acceptance');
+  eq(took.member.name, 'Tech Boy', '...from the right technician');
+  eq(T.seats().used, 1, 'one seat is used');
+  eq((await w.DB.getMeta('teamInvites')).filter(i => i.code === inv.file.code)[0].status,
+    'joined', 'the invite is marked joined');
+  const again = await T.applyAcceptance(accept);
+  ok(again.ok && again.again === true, 're-importing the acceptance updates instead of doubling');
+  eq(T.seats().used, 1, '...and eats no second seat');
+  eq((await T.applyRemoval({ format: 'x' })).error, 'notremoval', 'a non-removal is refused as such');
+
+  // A file from a crew we never heard of goes nowhere.
+  const strange = { format: 'rehoteq-field-team', kind: 'update',
+    job: { id: 'STRANGE', companyId: 'CO-STRANGER', assignedTo: 'NOBODY' }, photos: [] };
+  eq((await T.applyUpdate(strange)).error, 'wrongcrew', 'an update from another crew is refused');
+
+  // --- seats: five included, extras paid -------------------------------
+  const extras = [];
+  for (let i = 1; i <= 4; i++) {
+    const iv = await T.makeInvite();
+    const r = await T.applyAcceptance({ format: 'rehoteq-field-team', kind: 'acceptance',
+      code: iv.file.code, companyId: companyId,
+      member: { memberId: 'EXTRA' + i, name: 'Tech ' + i, phone: '', joinedAt: new Date().toISOString() } });
+    extras.push(r.ok);
+  }
+  ok(extras.every(Boolean), 'seats two to five fill up');
+  eq(T.seats().used, 5, 'five seats are used');
+  const sixthInvite = await T.makeInvite();
+  const sixthFile = { format: 'rehoteq-field-team', kind: 'acceptance', code: sixthInvite.file.code,
+    companyId: companyId, member: { memberId: 'EXTRA6', name: 'Tech 6', phone: '' } };
+  eq((await T.applyAcceptance(sixthFile)).error, 'full', 'the sixth technician is refused: all seats taken');
+  eq((await T.claimSeats(0)).error, 'badcount', 'claiming zero seats is refused');
+  const claimed = await T.claimSeats(2);
+  ok(claimed.ok && claimed.paid === 7, 'claiming two seats after payment makes seven');
+  const outbox = await w.DB.all('outbox');
+  ok(outbox.some(o => o.op && o.op.type === 'team.seats.claimed'),
+    'the seat claim is queued, so sync can reconcile it');
+  ok((await T.applyAcceptance(sixthFile)).ok, 'with seats added, the sixth technician joins');
+  eq(T.seats().used, 6, 'six seats are used');
+
+  // --- assignment: owner to technician --------------------------------
+  const jobBase = {
+    id: 'JOBT1', ref: 'RF-2026-90001', trade: 'solar', jobType: 'Panel cleaning',
+    customer: { name: 'Mrs C', phone: '0803 999 8888', address: '1 Test St' },
+    site: { address: '1 Test St', lat: null, lng: null }, equipment: {},
+    instructions: 'Clean all twelve panels. Do not step on them.',
+    fault: '', diagnosis: '', work: '', recommendation: '',
+    materials: [], labour: 0, checklist: null,
+    signatures: { customer: null, technician: null }, status: 'draft',
+    startedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
+    completedAt: null, lockedAt: null, hashes: []
+  };
+  await w.DB.put('jobs', JSON.parse(JSON.stringify(jobBase)));
+  const lockedJob = Object.assign(JSON.parse(JSON.stringify(jobBase)),
+    { id: 'JOBLOCK', ref: 'RF-2026-90002', lockedAt: new Date().toISOString(), status: 'completed',
+      companyId: companyId, assignedTo: 'EXTRA1' });
+  await w.DB.put('jobs', lockedJob);
+  eq((await T.makeAssignment('NO-SUCH-JOB', 'TECHPHONE1')).error, 'nojob', 'assigning a missing job is refused');
+  eq((await T.makeAssignment('JOBT1', 'NOBODY')).error, 'nomember', 'assigning to a stranger is refused');
+  eq((await T.makeAssignment('JOBLOCK', 'TECHPHONE1')).error, 'locked', 'assigning locked evidence is refused');
+  const assignment = await T.makeAssignment('JOBT1', 'TECHPHONE1');
+  ok(assignment.ok, 'the owner assigns the job');
+  eq(assignment.file.kind, 'assignment', '...as an assignment file');
+  eq(assignment.file.job.assignedTo, 'TECHPHONE1', '...addressed to the technician');
+  eq((await w.DB.get('jobs', 'JOBT1')).status, 'assigned', 'the shadow is marked assigned');
+  ok(T.companyJob(await w.DB.get('jobs', 'JOBT1')), 'an assigned job counts as company work');
+  ok(T.isShadow(await w.DB.get('jobs', 'JOBT1')), '...and as a shadow on the owner\u2019s phone');
+  const ownerSnap2 = await snapTeam(w);
+
+  // --- the technician works it ----------------------------------------
+  await w.DB.setMeta('user', techMember);
+  T._testAs(techMember);
+  const wrongCrewFile = Object.assign({}, assignment.file, { companyId: 'CO-STRANGER' });
+  eq((await T.applyAssignment(wrongCrewFile)).error, 'wrongcrew', 'a job from another crew is refused');
+  const notMine = JSON.parse(JSON.stringify(assignment.file));
+  notMine.job.assignedTo = 'SOMEONEELSE';
+  eq((await T.applyAssignment(notMine)).error, 'notyou', 'a job for someone else is refused');
+  const tookJob = await T.applyAssignment(assignment.file);
+  ok(tookJob.ok, 'the technician takes the assigned job');
+  eq((await w.DB.get('jobs', 'JOBT1')).instructions, jobBase.instructions,
+    'the site instructions survive the trip');
+  await w.ACT.openJob('JOBT1');
+  await sleep(60);
+  eq((await w.DB.get('jobs', 'JOBT1')).status, 'in-progress', 'opening the job moves it to in progress');
+  eq(w.ACT._view(), 'jobcard', '...on the job card');
+  const sendBtn = [...w.document.querySelectorAll('[onclick]')]
+    .find(b => (b.getAttribute('onclick') || '').includes('ACT.sendUpdate'));
+  ok(!!sendBtn, 'the job card offers Send update to the assigned technician');
+  const assignBtn = [...w.document.querySelectorAll('[onclick]')]
+    .find(b => (b.getAttribute('onclick') || '').includes('ACT.assignJob'));
+  ok(!assignBtn, '...but no Assign control: members cannot reassign');
+
+  const worked = await w.DB.get('jobs', 'JOBT1');
+  worked.diagnosis = 'Dust shading on strings 2 and 3. Cleaned and re-tested.';
+  worked.status = 'completed';
+  await w.DB.put('jobs', worked);
+  await w.DB.put('jobs', Object.assign({}, worked, { id: 'JOBT3', assignedTo: 'SOMEONEELSE' }));
+  eq((await T.makeUpdate('JOBT3')).error, 'notyou', 'a technician cannot send updates for another\u2019s job');
+  const update = await T.makeUpdate('JOBT1');
+  ok(update.ok, 'the technician packs an update');
+  eq(update.file.kind, 'update', '...as an update file');
+
+  // --- the update lands on the dashboard -------------------------------
+  await restoreTeam(w, ownerSnap2);
+  const landed = await T.applyUpdate(update.file);
+  ok(landed.ok, 'the owner applies the update');
+  eq((await w.DB.get('jobs', 'JOBT1')).status, 'completed', 'the shadow now reads completed');
+  eq((await w.DB.get('jobs', 'JOBT1')).diagnosis, worked.diagnosis, '...with the technician\u2019s words');
+  eq(T.memberName('TECHPHONE1'), 'Tech Boy', 'the dashboard resolves the technician\u2019s name');
+  eq(T.statusLabel('in-progress'), 'In progress', 'statuses read as words, not slugs');
+  await w.ACT.openJob('JOBT1');
+  await sleep(60);
+  eq(w.ACT._view(), 'teamjob', 'the owner\u2019s copy opens read-only');
+  ok((w.document.body.textContent || '').includes('Tech Boy'),
+    'the read-only screen names who holds the truth');
+
+  // Company work never burns free reports.
+  const lockedCompany = Object.assign(JSON.parse(JSON.stringify(jobBase)),
+    { id: 'JOBLC', ref: 'RF-2026-90003', companyId: companyId, ownerId: ownerSnap2.company.ownerId,
+      assignedTo: 'EXTRA1', assignedAt: new Date().toISOString(),
+      lockedAt: new Date().toISOString(), status: 'sent' });
+  const lockedPersonal = Object.assign(JSON.parse(JSON.stringify(jobBase)),
+    { id: 'JOBLP', ref: 'RF-2026-90004', lockedAt: new Date().toISOString(), status: 'sent' });
+  await w.DB.put('jobs', lockedCompany);
+  await w.DB.put('jobs', lockedPersonal);
+  await w.ACT.openJob('JOBLC');
+  await sleep(40);
+  await w.ACT.saveDraft();
+  await sleep(60);
+  w.ACT.go('home');
+  await sleep(60);
+  ok((w.document.body.textContent || '').includes('1 of 3 free reports used'),
+    'the meter counts the personal report but not the company one');
+
+  // --- removal ---------------------------------------------------------
+  const removal = await T.makeRemoval('TECHPHONE1');
+  ok(removal.ok, 'the owner removes the technician');
+  eq(removal.file.kind, 'removal', '...as a removal file');
+  eq(T.seats().used, 5, 'the seat frees up immediately');
+  await w.DB.setMeta('user', techMember);
+  T._testAs(techMember);
+  const notMineRemoval = Object.assign({}, removal.file, { memberId: 'SOMEONEELSE' });
+  eq((await T.applyRemoval(notMineRemoval)).error, 'notyou', 'a stranger\u2019s removal notice is refused');
+  const removed = await T.applyRemoval(removal.file);
+  ok(removed.ok, 'the technician imports the removal notice');
+  eq((await w.DB.getMeta('user')).memberOf, undefined, '...and the company stamp is gone');
+
+  // --- the stamp on paper ----------------------------------------------
+  await restoreTeam(w, ownerSnap2);
+  const stamped = Buffer.from(w.REPORT.buildReport(await w.DB.get('jobs', 'JOBT1'),
+    { before: [], during: [], after: [], serial: [] }, {}, T.docProfile())).toString('latin1');
+  ok(stamped.includes('Oga'), 'the crew job\u2019s PDF carries the company stamp');
+  ok(stamped.includes('RF-2026-90001'), '...and the job reference');
+
+  // --- the screens ------------------------------------------------------
+  w.ACT.go('team');
+  await sleep(60);
+  const teamText = w.document.body.textContent || '';
+  ok(teamText.includes('Oga & Sons'), 'the owner dashboard names the company');
+  ok(teamText.includes('seats used'), '...and the seat count');
+  w.ACT.go('settings');
+  await sleep(60);
+  const openBtn = [...w.document.querySelectorAll('[onclick]')]
+    .find(b => (b.getAttribute('onclick') || '').includes('ACT.openTeam'));
+  ok(!!openBtn, 'Settings offers My team');
+  if (openBtn) {
+    w.eval('(function(){ ' + openBtn.getAttribute('onclick') + ' })()');
+    await sleep(120);
+    eq(w.ACT._view(), 'team', 'tapping it lands on the team screen');
+  }
+  w.ACT.go('company');
+  await sleep(60);
+  eq(w.document.getElementById('cName').value, 'Oga & Sons', 'the stamp editor opens on the company');
+
+  T._testAs(techMemberScreen);
+  w.ACT.go('team');
+  await sleep(60);
+  const memberText = w.document.body.textContent || '';
+  ok(memberText.includes('Oga & Sons'), 'the member screen names the crew');
+  ok(memberText.includes('Leave crew'), '...and offers a way out');
+
+  T._testAs({ name: 'Solo', phone: '', trade: 'solar', plan: 'free', uid: 'SOLO1' });
+  w.ACT.go('team');
+  await sleep(60);
+  ok((w.document.body.textContent || '').includes('Start a company'),
+    'a technician in no crew is offered a way in');
+
+  // --- the crew survives a backup ---------------------------------------
+  await restoreTeam(w, ownerSnap2);
+  const serial = T.serialize();
+  ok(!!serial && !!serial.company, 'the crew serializes for backup');
+  await w.DB.setMeta('company', null);
+  await w.DB.setMeta('teamMembers', []);
+  await w.DB.setMeta('teamInvites', []);
+  await w.DB.setMeta('teamSeats', null);
+  await T.load();
+  eq(T.role(), 'none', 'with the crew wiped, the owner is crewless');
+  const restored = await T.restore(serial);
+  ok(restored.ok && restored.company, 'restoring brings the company back');
+  eq(restored.membersAdded, 6, '...and every member');
+  eq(T.role(), 'owner', '...and the owner is the owner again');
+  eq((await T.restore(null)).ok, true, 'restoring a pre-teams backup is a no-op, not an error');
+  w.ACT.go('home');
+  await sleep(30);
+}
+
+/* =====================================================================
    run
    ===================================================================== */
 (async () => {
@@ -935,6 +1246,7 @@ async function suiteFirebase(w) {
   await suiteTaps(w);
   suiteRules();
   await suiteFirebase(w);
+  await suiteTeam(w);
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);

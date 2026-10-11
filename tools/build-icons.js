@@ -49,7 +49,9 @@ const NEEDED = [
   'star', 'credit-card', 'signal', 'cloud', 'cloud-off', 'refresh-cw',
   'message-circle', 'play',
   // library
-  'book-open', 'thumbs-up', 'thumbs-down', 'brain', 'scan-line'
+  'book-open', 'thumbs-up', 'thumbs-down', 'brain', 'scan-line',
+  // team (Business)
+  'users', 'user-plus', 'send', 'inbox', 'briefcase'
 ];
 
 /* One icon Lucide does not have: a solar panel. Stood-in by a generic sun

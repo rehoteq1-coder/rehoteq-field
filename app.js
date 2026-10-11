@@ -19,7 +19,10 @@
     passportEq: null, online: navigator.onLine, search: '', toastT: null,
     // The signed-in Firebase user, or null. Null is a perfectly good way
     // to use the app — signing in is optional, never required.
-    fbUser: null
+    fbUser: null,
+    // The crew, once TEAM.load() has read it. Owners hold the company and
+    // the member list; members hold only their own membership on S.user.
+    team: null
   };
 
   /* ---------------- account ----------------------------------------
@@ -327,7 +330,526 @@
       const s = j.signatures && j.signatures[role];
       if (s && s.dataUrl) sigs[role] = Object.assign(await dataUrlToJpeg(s.dataUrl), { name: s.name, at: s.at });
     }
-    return pdfBlob(REPORT.buildReport(j, withBytes, sigs, S.user || {}));
+    return pdfBlob(REPORT.buildReport(j, withBytes, sigs, docProfile()));
+  }
+
+  /* ---------------- team (Business, offline edition) ------------------
+     A crew without a server. Invites, assignments and updates travel as
+     files over WhatsApp, and every record is shaped to match the
+     Firestore model in FIREBASE_PLAN.md — when sync lands, these objects
+     map onto companies/{id}, members/{uid} and jobs/{jobId} instead of
+     being redesigned.
+
+     Honest limits of this edition (stated on screen, not just here):
+     - nothing arrives by itself; every transfer is a file someone sends
+     - removing a technician frees the seat at once, but their phone keeps
+       the company stamp until they import the removal notice
+     - extra seats are self-declared after payment and verified at sync
+     ------------------------------------------------------------------ */
+  const TEAM_FORMAT = 'rehoteq-field-team';
+  // No 0/O/1/I: a code read over the phone must survive the call.
+  const CODE_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+  function teamState() {
+    if (!S.team) S.team = { company: null, members: [], invites: [], seats: null, sel: null };
+    if (!S.team.seats) S.team.seats = { paid: DATA.PLANS.business.seats, selfDeclared: false, claimedAt: null };
+    if (!Array.isArray(S.team.members)) S.team.members = [];
+    if (!Array.isArray(S.team.invites)) S.team.invites = [];
+    return S.team;
+  }
+
+  function myUid() { return S.user && S.user.uid; }
+
+  function myRole() {
+    const t = teamState();
+    if (t.company && myUid() && t.company.ownerId === myUid()) return 'owner';
+    if (S.user && S.user.memberOf && S.user.memberOf.companyId) return 'member';
+    return 'none';
+  }
+
+  function myCompanyName() {
+    const t = teamState();
+    if (t.company && t.company.name) return t.company.name;
+    if (S.user && S.user.memberOf && S.user.memberOf.branding) return S.user.memberOf.branding.name || '';
+    return '';
+  }
+
+  // A job is company work when it carries the crew's id — whether this
+  // phone is the owner's or the technician's. Company work never burns
+  // the technician's free reports: the crew's subscription covers it.
+  function companyJob(j) {
+    if (!j || !j.companyId) return false;
+    const t = teamState();
+    if (t.company && j.companyId === t.company.id) return true;
+    return !!(S.user && S.user.memberOf && j.companyId === S.user.memberOf.companyId);
+  }
+
+  // The owner's copy of an assigned job. It is a shadow: the technician's
+  // phone is the source of truth, updates arrive as files, and editing it
+  // here would be silently overwritten by the next update — so it opens
+  // read-only instead.
+  function isShadow(j) {
+    const t = teamState();
+    return myRole() === 'owner' && !!j && !!j.assignedTo &&
+      !!(t.company && j.companyId === t.company.id) && j.assignedTo !== myUid();
+  }
+
+  function isMine(j) { return !!j && !!j.assignedTo && j.assignedTo === myUid(); }
+
+  function statusLabel(s) {
+    return { draft: 'Draft', assigned: 'Assigned', 'in-progress': 'In progress',
+      completed: 'Completed', sent: 'Sent' }[s] || 'Draft';
+  }
+
+  function memberById(id) { return teamState().members.find(m => m.memberId === id); }
+  function memberName(id) { const m = memberById(id); return m ? m.name : 'Crew'; }
+  function memberJobs(id) { return S.jobs.filter(j => j.assignedTo === id); }
+  function lastUpdateFor(id) {
+    const at = memberJobs(id).map(j => j.updatedAt || j.assignedAt || j.createdAt).filter(Boolean).sort();
+    return at.length ? at[at.length - 1] : null;
+  }
+
+  function teamStatusLine() {
+    const t = teamState();
+    const r = myRole();
+    if (r === 'owner') return (t.company ? t.company.name : 'Crew') + ' · ' + t.members.length + ' techs';
+    if (r === 'member') return myCompanyName() || 'Crew';
+    return 'Run a crew, or join one';
+  }
+
+  // The branding printed on documents. A technician under a company sends
+  // company-stamped PDFs; everyone else sends their own. The personal name
+  // is always the sender's own — the stamp must say who did the work.
+  function docProfile() {
+    const u = S.user || {};
+    const t = teamState();
+    const co = (myRole() === 'owner' && t.company) || (u.memberOf && u.memberOf.branding) || null;
+    if (!co) return u;
+    return {
+      name: u.name, phone: co.phone || u.phone,
+      company: co.name, address: co.address, email: co.email,
+      bank: co.bank, bio: co.bio, logo: co.logo || u.logo || null
+    };
+  }
+
+  async function teamSave() {
+    const t = teamState();
+    await DB.setMeta('company', t.company);
+    await DB.setMeta('teamMembers', t.members);
+    await DB.setMeta('teamInvites', t.invites);
+    await DB.setMeta('teamSeats', t.seats);
+  }
+
+  async function teamLoad() {
+    const t = teamState();
+    t.company = await DB.getMeta('company');
+    t.members = (await DB.getMeta('teamMembers')) || [];
+    t.invites = (await DB.getMeta('teamInvites')) || [];
+    t.seats = (await DB.getMeta('teamSeats')) ||
+      { paid: DATA.PLANS.business.seats, selfDeclared: false, claimedAt: null };
+    if (S.user && !S.user.uid) {
+      // Installs from before teams existed have no uid. Mint one now, so
+      // invites and assignments have an identity to point at.
+      S.user.uid = IMG.uid();
+      await DB.setMeta('user', S.user);
+    }
+    return t;
+  }
+
+  function makeCode() {
+    let s = '';
+    for (let i = 0; i < 8; i++) s += CODE_ALPHA[Math.floor(Math.random() * CODE_ALPHA.length)];
+    return 'RQ-' + s.slice(0, 4) + '-' + s.slice(4);
+  }
+
+  function brandSnapshot(company) {
+    return {
+      name: company.name, address: company.address || '', phone: company.phone || '',
+      email: company.email || '', bank: company.bank || '', bio: company.bio || '',
+      logo: company.logo || null
+    };
+  }
+
+  // Photo records for a team file. Same shape as the backup format, and
+  // the same rule: one unreadable photo must never sink the transfer.
+  async function packPhotos(jobId) {
+    const all = await DB.all('photos');
+    const recs = [];
+    for (const p of all) {
+      if (p.jobId !== jobId || p.deletedAt) continue;
+      let image = null;
+      try { if (p.blob) image = await blobToBase64(p.blob); } catch (e) { image = null; }
+      recs.push({ id: p.id, jobId: p.jobId, stage: p.stage, sha256: p.sha256,
+        capturedAt: p.capturedAt, lat: p.lat, lng: p.lng, w: p.w, h: p.h,
+        device: p.device, image: image });
+    }
+    return recs;
+  }
+
+  async function unpackPhotos(recs) {
+    let added = 0, noImage = 0;
+    for (const p of (recs || [])) {
+      const rec = Object.assign({}, p);
+      if (rec.image) {
+        try { rec.blob = base64ToBlob(rec.image, 'image/jpeg'); }
+        catch (e) { rec.blob = null; noImage++; }
+      } else { noImage++; }
+      delete rec.image;
+      if (!rec.url && rec.blob) {
+        try { rec.url = URL.createObjectURL(rec.blob); } catch (e) { rec.url = null; }
+      }
+      const existing = await DB.get('photos', rec.id);
+      if (!existing) added++;
+      await DB.put('photos', rec);
+    }
+    return { added: added, noImage: noImage };
+  }
+
+  // Every operation below returns { ok } and never throws for an expected
+  // failure — a wrong file, a full crew, a stranger's job. ACT turns the
+  // error code into words via teamErr(). Exposed as window.TEAM so the
+  // test suite can run the whole round trip for real: invite, join,
+  // assign, update, dashboard.
+  const TEAM = {
+    load: teamLoad,
+    save: teamSave,
+    role: myRole,
+    docProfile: docProfile,
+    companyJob: companyJob,
+    isShadow: isShadow,
+    isMine: isMine,
+    statusLabel: statusLabel,
+    memberName: memberName,
+    memberJobs: memberJobs,
+
+    seats() {
+      const t = teamState();
+      return { used: t.members.length, paid: (t.seats && t.seats.paid) || DATA.PLANS.business.seats };
+    },
+
+    async createCompany() {
+      if (!S.user) return { ok: false, error: 'noprofile' };
+      const t = teamState();
+      if (t.company) return { ok: false, error: 'exists' };
+      if (S.user.memberOf) return { ok: false, error: 'member' };
+      const u = S.user;
+      t.company = {
+        id: 'CO-' + (u.uid || IMG.uid()),
+        ownerId: u.uid, ownerName: u.name,
+        name: u.company || 'My company',
+        address: u.address || '', phone: u.phone || '', email: u.email || '',
+        bank: u.bank || '', bio: u.bio || '', logo: u.logo || null,
+        createdAt: new Date().toISOString()
+      };
+      await teamSave();
+      DB.queue({ type: 'team.company', id: t.company.id });
+      return { ok: true, company: t.company };
+    },
+
+    async saveCompany(patch) {
+      const t = teamState();
+      if (!t.company || myRole() !== 'owner') return { ok: false, error: 'notowner' };
+      Object.assign(t.company, patch);
+      await teamSave();
+      return { ok: true };
+    },
+
+    async makeInvite() {
+      const t = teamState();
+      if (myRole() !== 'owner' || !t.company) return { ok: false, error: 'notowner' };
+      const code = makeCode();
+      const inv = { code: code, companyId: t.company.id, status: 'waiting', createdAt: new Date().toISOString() };
+      t.invites.push(inv);
+      await teamSave();
+      DB.queue({ type: 'team.invite', id: code });
+      return { ok: true, invite: inv, file: TEAM.inviteFile(code) };
+    },
+
+    inviteFile(code) {
+      const t = teamState();
+      const inv = t.invites.find(i => i.code === code && i.status === 'waiting');
+      if (!inv || !t.company) return null;
+      return { format: TEAM_FORMAT, kind: 'invite', code: code, companyId: t.company.id,
+        ownerName: t.company.ownerName, branding: brandSnapshot(t.company), createdAt: inv.createdAt };
+    },
+
+    async revokeInvite(code) {
+      const t = teamState();
+      t.invites = t.invites.filter(i => i.code !== code);
+      await teamSave();
+      return { ok: true };
+    },
+
+    async applyInvite(file) {
+      if (!S.user) return { ok: false, error: 'noprofile' };
+      if (!file || file.format !== TEAM_FORMAT || file.kind !== 'invite') return { ok: false, error: 'notinvite' };
+      if (!file.branding || !file.branding.name || !file.companyId) return { ok: false, error: 'damaged' };
+      const t = teamState();
+      if (t.company) return { ok: false, error: 'runscrew' };
+      const cur = S.user.memberOf;
+      if (cur && cur.companyId === file.companyId) return { ok: false, error: 'already' };
+      if (cur) return { ok: false, error: 'elsewhere' };
+      S.user.memberOf = { companyId: file.companyId, code: file.code,
+        branding: file.branding, ownerName: file.ownerName || '',
+        joinedAt: new Date().toISOString(), sent: false };
+      await DB.setMeta('user', S.user);
+      return { ok: true, company: file.branding.name };
+    },
+
+    acceptanceFile() {
+      const m = S.user && S.user.memberOf;
+      if (!m) return null;
+      return { format: TEAM_FORMAT, kind: 'acceptance', code: m.code, companyId: m.companyId,
+        member: { memberId: myUid(), name: S.user.name, phone: S.user.phone || '', joinedAt: m.joinedAt } };
+    },
+
+    async markAcceptanceSent() {
+      if (S.user && S.user.memberOf) {
+        S.user.memberOf.sent = true;
+        await DB.setMeta('user', S.user);
+      }
+    },
+
+    async applyAcceptance(file) {
+      const t = teamState();
+      if (myRole() !== 'owner' || !t.company) return { ok: false, error: 'notowner' };
+      if (!file || file.format !== TEAM_FORMAT || file.kind !== 'acceptance') return { ok: false, error: 'notaccept' };
+      if (file.companyId !== t.company.id) return { ok: false, error: 'wrongcrew' };
+      const inv = t.invites.find(i => i.code === file.code);
+      if (!inv) return { ok: false, error: 'nocode' };
+      const m = file.member || {};
+      if (!m.memberId || !m.name) return { ok: false, error: 'damaged' };
+      // Re-importing an acceptance (the file got sent twice) updates the
+      // record instead of eating a second seat.
+      const dup = t.members.find(x => x.memberId === m.memberId);
+      if (dup) {
+        dup.name = m.name; dup.phone = m.phone || dup.phone;
+        inv.status = 'joined';
+        await teamSave();
+        return { ok: true, member: dup, again: true };
+      }
+      const s = TEAM.seats();
+      if (s.used >= s.paid) return { ok: false, error: 'full' };
+      const rec = { memberId: m.memberId, name: m.name, phone: m.phone || '',
+        joinedAt: m.joinedAt || new Date().toISOString(), code: file.code };
+      t.members.push(rec);
+      inv.status = 'joined';
+      await teamSave();
+      DB.queue({ type: 'team.join', id: rec.memberId });
+      return { ok: true, member: rec };
+    },
+
+    async makeAssignment(jobId, memberId) {
+      const t = teamState();
+      if (myRole() !== 'owner' || !t.company) return { ok: false, error: 'notowner' };
+      const member = memberById(memberId);
+      if (!member) return { ok: false, error: 'nomember' };
+      const job = await DB.get('jobs', jobId);
+      if (!job) return { ok: false, error: 'nojob' };
+      if (job.lockedAt) return { ok: false, error: 'locked' };
+      job.companyId = t.company.id;
+      job.ownerId = t.company.ownerId;
+      job.assignerName = t.company.ownerName;
+      job.assignedTo = memberId;
+      job.assignedAt = new Date().toISOString();
+      job.status = 'assigned';
+      job.updatedAt = new Date().toISOString();
+      await DB.put('jobs', JSON.parse(JSON.stringify(job)));
+      DB.queue({ type: 'team.assign', id: job.id });
+      await refreshJobs();
+      if (S.job && S.job.id === job.id) S.job = JSON.parse(JSON.stringify(job));
+      const photos = await packPhotos(job.id);
+      return { ok: true, member: member, file: {
+        format: TEAM_FORMAT, kind: 'assignment', companyId: t.company.id,
+        ownerName: t.company.ownerName, companyName: t.company.name,
+        job: JSON.parse(JSON.stringify(job)), photos: photos
+      } };
+    },
+
+    async applyAssignment(file) {
+      if (!S.user) return { ok: false, error: 'noprofile' };
+      if (!file || file.format !== TEAM_FORMAT || file.kind !== 'assignment' || !file.job) {
+        return { ok: false, error: 'notassign' };
+      }
+      const m = S.user.memberOf;
+      if (!m || m.companyId !== file.companyId) return { ok: false, error: 'wrongcrew' };
+      if (file.job.assignedTo !== myUid()) return { ok: false, error: 'notyou' };
+      const local = await DB.get('jobs', file.job.id);
+      if (local && local.lockedAt) return { ok: false, error: 'locked' };
+      const job = file.job;
+      job.updatedAt = new Date().toISOString();
+      await DB.put('jobs', JSON.parse(JSON.stringify(job)));
+      const ph = await unpackPhotos(file.photos);
+      await refreshJobs();
+      return { ok: true, job: job, photos: ph.added };
+    },
+
+    async makeUpdate(jobId) {
+      const job = await DB.get('jobs', jobId);
+      if (!job) return { ok: false, error: 'nojob' };
+      if (!isMine(job)) return { ok: false, error: 'notyou' };
+      const photos = await packPhotos(job.id);
+      return { ok: true, file: {
+        format: TEAM_FORMAT, kind: 'update', companyId: job.companyId,
+        job: JSON.parse(JSON.stringify(job)), photos: photos
+      } };
+    },
+
+    async applyUpdate(file) {
+      const t = teamState();
+      if (myRole() !== 'owner' || !t.company) return { ok: false, error: 'notowner' };
+      if (!file || file.format !== TEAM_FORMAT || file.kind !== 'update' || !file.job) {
+        return { ok: false, error: 'notupdate' };
+      }
+      if (file.job.companyId !== t.company.id) return { ok: false, error: 'wrongcrew' };
+      if (!memberById(file.job.assignedTo)) return { ok: false, error: 'nomember' };
+      // The technician's phone is the source of truth for this job: the
+      // update replaces the shadow outright. The owner's copy is never
+      // edited (it opens read-only), so nothing of value is lost.
+      const job = file.job;
+      job.updatedAt = new Date().toISOString();
+      await DB.put('jobs', JSON.parse(JSON.stringify(job)));
+      const ph = await unpackPhotos(file.photos);
+      DB.queue({ type: 'team.update', id: job.id });
+      await refreshJobs();
+      if (S.job && S.job.id === job.id) S.job = JSON.parse(JSON.stringify(job));
+      return { ok: true, job: job, photos: ph.added };
+    },
+
+    async makeRemoval(memberId) {
+      const t = teamState();
+      if (myRole() !== 'owner' || !t.company) return { ok: false, error: 'notowner' };
+      const member = memberById(memberId);
+      if (!member) return { ok: false, error: 'nomember' };
+      t.members = t.members.filter(x => x.memberId !== memberId);
+      await teamSave();
+      DB.queue({ type: 'team.remove', id: memberId });
+      return { ok: true, member: member, file: {
+        format: TEAM_FORMAT, kind: 'removal', companyId: t.company.id,
+        companyName: t.company.name, memberId: memberId
+      } };
+    },
+
+    async applyRemoval(file) {
+      if (!file || file.format !== TEAM_FORMAT || file.kind !== 'removal') return { ok: false, error: 'notremoval' };
+      const m = S.user && S.user.memberOf;
+      if (!m || m.companyId !== file.companyId) return { ok: false, error: 'wrongcrew' };
+      if (myUid() !== file.memberId) return { ok: false, error: 'notyou' };
+      const name = (m.branding && m.branding.name) || 'your crew';
+      delete S.user.memberOf;
+      await DB.setMeta('user', S.user);
+      return { ok: true, company: name };
+    },
+
+    async leaveTeam() {
+      if (!S.user || !S.user.memberOf) return { ok: false, error: 'none' };
+      const m = S.user.memberOf;
+      const name = (m.branding && m.branding.name) || 'your crew';
+      delete S.user.memberOf;
+      await DB.setMeta('user', S.user);
+      return { ok: true, company: name };
+    },
+
+    // Extra seats, honestly labelled: the app cannot verify a payment
+    // without a server, so the claim is recorded (and queued for sync)
+    // and REHOTEQ verifies it when the server lands.
+    async claimSeats(n) {
+      const t = teamState();
+      if (myRole() !== 'owner') return { ok: false, error: 'notowner' };
+      n = Math.floor(Number(n) || 0);
+      if (n < 1 || n > 20) return { ok: false, error: 'badcount' };
+      t.seats.paid += n;
+      t.seats.selfDeclared = true;
+      t.seats.claimedAt = new Date().toISOString();
+      await teamSave();
+      DB.queue({ type: 'team.seats.claimed', id: String(n) });
+      return { ok: true, paid: t.seats.paid, added: n };
+    },
+
+    // The crew rides inside the normal backup: an owner who loses their
+    // phone loses the member list too unless it is backed up with the jobs.
+    serialize() {
+      const t = teamState();
+      if (!t.company && !t.members.length && !t.invites.length) return null;
+      return { company: t.company, members: t.members, invites: t.invites, seats: t.seats };
+    },
+
+    async restore(saved) {
+      if (!saved) return { ok: true, company: false, membersAdded: 0 };
+      const t = teamState();
+      let company = false, membersAdded = 0;
+      if (saved.company && (!t.company || t.company.id === saved.company.id)) {
+        t.company = saved.company;
+        company = true;
+      }
+      (saved.members || []).forEach(m => {
+        if (m && m.memberId && !memberById(m.memberId)) { t.members.push(m); membersAdded++; }
+      });
+      (saved.invites || []).forEach(i => {
+        if (i && i.code && !t.invites.find(x => x.code === i.code)) t.invites.push(i);
+      });
+      if (saved.seats && Number(saved.seats.paid) > t.seats.paid) t.seats = saved.seats;
+      await teamSave();
+      return { ok: true, company: company, membersAdded: membersAdded };
+    },
+
+    packPhotos: packPhotos,
+    unpackPhotos: unpackPhotos,
+
+    // Test seam: simulates the second phone. There is no other honest way
+    // to run an owner and a technician through one test window — S is a
+    // closure, and the suite must drive the real functions, not copies.
+    _testAs(u) { S.user = u || null; S.team = null; teamState(); }
+  };
+  window.TEAM = TEAM;
+
+  function teamErr(code) {
+    return {
+      noprofile: ['Create your profile first', 'The team needs a name to attach'],
+      notowner: ['Only the crew owner can do that', null],
+      notyou: ['That file is for someone else', 'Check with your oga'],
+      wrongcrew: ['That file belongs to another crew', 'You can only work with one crew at a time'],
+      damaged: ['That file is damaged', 'Ask them to send it again'],
+      notteam: ['That is not a team file', 'Pick the file the app sent, ending in .json'],
+      backup: ['That is a backup file', 'Use Restore from backup in Settings'],
+      exists: ['You already run a crew', null],
+      member: ['You work with a crew already', 'Leave it first, then start your own'],
+      runscrew: ['You run a crew — crews cannot join crews', null],
+      already: ['You already joined this crew', null],
+      elsewhere: ['You already work with another crew', 'Leave it first'],
+      notinvite: ['That is not an invite', null],
+      notaccept: ['That is not an acceptance', null],
+      nocode: ['No invite matches that code', 'It may have been revoked'],
+      full: ['All seats are taken', 'Add seats below, then import the acceptance again'],
+      nomember: ['That technician is not on your crew', null],
+      nojob: ['Job not found on this phone', null],
+      locked: ['That job is signed and locked', 'Locked evidence cannot be reassigned'],
+      notassign: ['That is not an assigned job', null],
+      notupdate: ['That is not a job update', null],
+      notremoval: ['That is not a removal notice', null],
+      badcount: ['How many seats? Enter 1 to 20', null],
+      none: ['You are not in a crew', null]
+    }[code] || ['Something went wrong', 'Ask them to send the file again'];
+  }
+
+  // Team files leave the phone the same way backups do: the share sheet
+  // when the device has one, Downloads when it does not.
+  async function shareTeamFile(obj, filename, sentMsg) {
+    const json = JSON.stringify(obj);
+    const file = new File([json], filename, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: filename });
+        toast(sentMsg || 'Sent', 'Choose WhatsApp from the share sheet');
+        return true;
+      } catch (e) { return false; }
+    }
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
+    toast('Saved to Downloads — ' + filename, 'Send it on WhatsApp yourself');
+    return true;
   }
 
   /* ---------------- views ------------------------------------------- */
@@ -392,7 +914,9 @@
 
   V.home = () => {
     const plan = (S.user && S.user.plan) || 'free';
-    const used = S.jobs.filter(j => j.status === 'sent' || j.lockedAt).length;
+    // Company work is covered by the crew's subscription, so it never
+    // burns the technician's own free reports.
+    const used = S.jobs.filter(j => (j.status === 'sent' || j.lockedAt) && !companyJob(j)).length;
     const limit = plan === 'free' ? 3 : -1;
     const pct = limit < 0 ? 0 : Math.min(100, (used / limit) * 100);
     const cont = S.jobs.filter(j => !j.lockedAt && j.status !== 'sent').slice(0, 2);
@@ -638,6 +1162,10 @@
         ${text('recommendation', '5 · Recommendation', 'What should happen next — this is where the next job comes from')}
         <button class="btn ghost sm" onclick="ACT.go('checklist')">
           ${ICON('list-checks', 15)} Checklist ${j.checklist ? '· ' + j.checklist.items.filter(i => i.passed).length + '/' + j.checklist.items.length : ''}</button>
+        ${myRole() === 'owner' && !j.lockedAt && !j.assignedTo && teamState().members.length
+          ? `<button class="btn ghost sm" style="margin-top:10px" onclick="ACT.assignJob()">${ICON('send', 15)} Assign to crew</button>` : ''}
+        ${isMine(j)
+          ? `<button class="btn ghost sm" style="margin-top:10px" onclick="ACT.sendUpdate()">${ICON('send', 15)} Send update to supervisor</button>` : ''}
         <button class="btn primary sm" style="margin-top:10px" onclick="ACT.go('photos')">${ICON('camera', 15)} Job evidence</button>
       </div>`;
   };
@@ -754,6 +1282,7 @@
 
   V.report = () => {
     const j = S.job;
+    const prof = docProfile();
     const by = S.photos[j.id] || {};
     const stages = ['before', 'during', 'after'];
     const strip = stages.map(s => (by[s] || [])[0]).filter(Boolean);
@@ -887,6 +1416,8 @@
             <div class="js">${esc(j.ref)} · ${dstr(j.startedAt)} · ${esc(tradeName(j.trade))}</div>
             <div class="js" style="margin-top:2px">
               ${j.lockedAt ? ICON('lock',12) + ' Locked as evidence' : j.status === 'sent' ? ICON('upload',12) + ' Sent' : ICON('pencil-line',12) + ' Draft'}</div>
+            ${isShadow(j) ? `<div class="js" style="margin-top:2px">${ICON('send',12)} Assigned to ${esc(memberName(j.assignedTo))} · ${TEAM.statusLabel(j.status)}</div>` : ''}
+            ${isMine(j) ? `<div class="js" style="margin-top:2px">${ICON('users',12)} From ${esc(myCompanyName())} · ${TEAM.statusLabel(j.status)}</div>` : ''}
           </div></div></div>`).join('')
         : `<div class="empty"><div class="ei">${ICON('clipboard-list', 26)}</div><div class="et">No jobs yet</div>
            <div class="ed">Start your first job card. It takes about two minutes and ends with a
@@ -917,6 +1448,12 @@
               : 'Not set'}</span></div>
           <div class="srow" style="cursor:pointer" onclick="ACT.editProfile()">
             <span class="si">${ICON('pencil', 17)}</span><span class="sl">Edit profile</span><span style="color:#94A3B8">›</span></div>
+        </div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch">Team</div>
+          <div class="srow" style="cursor:pointer" onclick="ACT.openTeam()">
+            <span class="si">${ICON('users', 17)}</span><span class="sl">My team</span>
+            <span class="sv">${esc(teamStatusLine())}</span></div>
         </div>
         ${accountCard()}
         <div class="card" style="margin-bottom:12px">
@@ -1054,6 +1591,228 @@
       </div>`;
   };
 
+  /* ---------------- team views --------------------------------------- */
+
+  V.team = () => {
+    const t = teamState();
+    const role = myRole();
+    if (role === 'owner' && t.company) return teamOwnerView(t);
+    if (role === 'member' && S.user.memberOf) return teamMemberView(t);
+    return teamNoneView();
+  };
+
+  function teamOwnerView(t) {
+    const s = TEAM.seats();
+    const biz = DATA.PLANS.business;
+    const waiting = t.invites.filter(i => i.status === 'waiting');
+    const pct = s.paid ? Math.min(100, (s.used / s.paid) * 100) : 0;
+    return `
+      <div class="pad">
+        <div class="card"><div class="cb">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--muted)">YOUR CREW</div>
+          <div style="font-size:17px;font-weight:800;margin:3px 0">${esc(t.company.name)}</div>
+          <div style="font-size:11.5px;color:var(--muted)">You are the owner · since ${dstr(t.company.createdAt)}</div>
+          <div class="meter" style="margin:11px 0 0">
+            <div>${ICON('users', 20)}</div>
+            <div class="lab"><b>${s.used} of ${s.paid} seats used</b>
+              <div class="bar"><i style="width:${pct}%"></i></div>
+              <div style="margin-top:4px">Extra seats ${money(biz.extraSeat)} / month each` +
+              (t.seats.selfDeclared ? ' · extra seats self-declared' : '') + `</div></div>
+          </div>
+        </div></div>
+        <div class="btnrow">
+          <button class="btn primary sm" style="flex:1" onclick="ACT.makeInvite()">${ICON('user-plus', 15)} Invite</button>
+          <button class="btn ghost sm" style="flex:1" onclick="ACT.go('company')">${ICON('briefcase', 15)} Stamp</button>
+        </div>
+        <div class="btnrow" style="margin-top:9px">
+          <button class="btn ghost sm" style="flex:1" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Receive file</button>
+          <button class="btn ghost sm" style="flex:1" onclick="ACT.buySeats()">${ICON('plus', 15)} Seats</button>
+        </div>
+        <div class="sec">Technicians (${t.members.length})</div>
+        ${t.members.length ? t.members.map(m => {
+          const jobs = memberJobs(m.memberId);
+          const active = jobs.filter(j => j.status !== 'completed' && j.status !== 'sent').length;
+          const done = jobs.length - active;
+          const last = lastUpdateFor(m.memberId);
+          const open = t.sel === m.memberId;
+          return `
+          <div class="card">
+            <div class="rowitem" onclick="ACT.toggleMember('${m.memberId}')">
+              <div class="dotg" style="background:${active ? '#F59E0B' : '#0E7C5A'}"></div>
+              <div style="flex:1">
+                <div class="jt">${esc(m.name)}</div>
+                <div class="js">${esc(m.phone || 'No number')} · ${active} active · ${done} done</div>
+                <div class="js" style="margin-top:2px">${last ? 'Updated ' + dstr(last) + ' ' + tstr(last) : 'No jobs yet'}</div>
+              </div>
+              <div style="color:#94A3B8">${open ? '▾' : '›'}</div>
+            </div>
+            ${open ? `
+              <div class="cb" style="padding-top:0">
+                ${jobs.length ? jobs.map(j => `
+                  <div class="rowitem" style="padding-left:0;padding-right:0" onclick="ACT.openJob('${j.id}')">
+                    <div class="dotg" style="background:${j.lockedAt ? '#0E7C5A' : '#F59E0B'}"></div>
+                    <div style="flex:1">
+                      <div class="jt" style="font-size:13px">${esc(j.jobType || 'Job card')}${j.customer.name ? ' — ' + esc(j.customer.name) : ''}</div>
+                      <div class="js">${esc(j.ref)} · ${TEAM.statusLabel(j.status)} · ${dstr(j.updatedAt || j.assignedAt)}</div>
+                    </div>
+                    <div style="color:#94A3B8">›</div>
+                  </div>`).join('') : '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px">No jobs assigned yet — open a job card and tap Assign.</div>'}
+                <div class="btnrow" style="margin-top:6px">
+                  <button class="btn ghost sm" style="flex:1" onclick="ACT.nudgeMember('${m.memberId}')">${ICON('send', 14)} Nudge</button>
+                  <button class="btn ghost sm" style="flex:1;color:#DC2626" onclick="ACT.removeMember('${m.memberId}')">Remove</button>
+                </div>
+              </div>` : ''}
+          </div>`;
+        }).join('') : `<div class="empty"><div class="ei">${ICON('users', 26)}</div><div class="et">No technicians yet</div>
+           <div class="ed">Tap Invite — the invite travels as a file over WhatsApp, and their
+           acceptance comes back the same way.</div></div>`}
+        ${waiting.length ? `<div class="sec">Invites waiting (${waiting.length})</div>` + waiting.map(i => `
+          <div class="card"><div class="rowitem">
+            <div style="flex:1">
+              <div class="jt mono">${esc(i.code)}</div>
+              <div class="js">Sent ${dstr(i.createdAt)} — waiting for their acceptance file</div>
+            </div>
+            <button class="btn ghost sm" style="width:auto;padding:9px 12px" onclick="ACT.resendInvite('${i.code}')">Send</button>
+            <button class="btn ghost sm" style="width:auto;padding:9px 12px;color:#DC2626" onclick="ACT.revokeInvite('${i.code}')">Revoke</button>
+          </div></div>`).join('') : ''}
+        <div class="banner b-ok" style="text-align:left;line-height:1.6">
+          <b>How crews work before the server lands.</b> Jobs, invites and updates travel as
+          files over WhatsApp — nothing arrives by itself. Your stamp prints on every PDF
+          your crew sends, and every update they send back lands on this dashboard.</div>
+      </div>`;
+  }
+
+  function teamMemberView(t) {
+    const m = S.user.memberOf;
+    const mine = S.jobs.filter(j => isMine(j));
+    return `
+      <div class="pad">
+        <div class="card"><div class="cb">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--muted)">YOU WORK WITH</div>
+          <div style="font-size:17px;font-weight:800;margin:3px 0">${esc(m.branding.name)}</div>
+          <div style="font-size:11.5px;color:var(--muted)">Oga: ${esc(m.ownerName || '—')} · joined ${dstr(m.joinedAt)}</div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:3px">Your PDFs carry the company stamp.
+          Company jobs never touch your 3 free reports.</div>
+        </div></div>
+        ${!m.sent ? `<button class="btn primary sm" onclick="ACT.sendAcceptance()">${ICON('send', 15)} Send acceptance to your oga</button>
+          <div class="hintline" style="margin:7px 0 11px">They cannot see you on their dashboard until it arrives.</div>` : ''}
+        <div class="btnrow">
+          <button class="btn ghost sm" style="flex:1" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Receive file</button>
+          <button class="btn ghost sm" style="flex:1;color:#DC2626" onclick="ACT.leaveTeam()">Leave crew</button>
+        </div>
+        <div class="sec">My assigned jobs (${mine.length})</div>
+        ${mine.length ? mine.map(j => `
+          <div class="card"><div class="rowitem" onclick="ACT.openJob('${j.id}')">
+            <div class="dotg" style="background:${j.lockedAt ? '#0E7C5A' : '#F59E0B'}"></div>
+            <div style="flex:1">
+              <div class="jt">${esc(j.jobType || 'Job card')}${j.customer.name ? ' — ' + esc(j.customer.name) : ''}</div>
+              <div class="js">${esc(j.ref)} · ${TEAM.statusLabel(j.status)}${j.assignerName ? ' · from ' + esc(j.assignerName) : ''}</div>
+            </div>
+            <div style="color:#94A3B8">›</div></div></div>`).join('')
+          : `<div class="empty"><div class="ei">${ICON('inbox', 26)}</div><div class="et">No jobs yet</div>
+             <div class="ed">When your oga assigns you a job, import the file with Receive file above.</div></div>`}
+        <div class="banner b-ok" style="text-align:left;line-height:1.6">
+          <b>Keep your oga posted.</b> Open a job and tap Send update after each visit —
+          it travels as a file over WhatsApp and lands on their dashboard.</div>
+      </div>`;
+  }
+
+  function teamNoneView() {
+    return `
+      <div class="pad">
+        <div class="empty"><div class="ei">${ICON('users', 26)}</div>
+          <div class="et">Run a crew, or join one</div>
+          <div class="ed">Owners stamp every PDF their technicians send, assign jobs with
+          instructions pinned, and watch progress land on a dashboard.</div></div>
+        <button class="btn primary sm" onclick="ACT.createCompany()">${ICON('briefcase', 15)} Start a company</button>
+        <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Join with an invite file</button>
+        <div class="banner b-ok" style="margin-top:14px;text-align:left;line-height:1.6">
+          Pilot: teams are free while we test. Business is ${money(DATA.PLANS.business.price)} / month
+          for ${DATA.PLANS.business.seats} seats — extra seats ${money(DATA.PLANS.business.extraSeat)} / month each.</div>
+      </div>`;
+  }
+
+  // The owner's copy of an assigned job, read-only. Editing it here would
+  // be overwritten by the next update file, so the screen says where the
+  // truth lives instead of pretending this copy is editable.
+  V.teamjob = () => {
+    const j = S.job;
+    if (!j) return `<div class="pad"><div class="empty"><div class="ei">${ICON('users', 26)}</div>
+      <div class="et">No job open</div></div>
+      <button class="btn ghost" onclick="ACT.go('team')">Back to team</button></div>`;
+    const mats = (j.materials || []).reduce((s, m) => s + (Number(m.qty) || 1) * (Number(m.unitPrice) || 0), 0);
+    const sig = j.signatures || {};
+    return `
+      <div class="pad">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+          <span class="chip">${ICON('users', 13)}<span>Crew job</span></span>
+          <span class="chip grey">${esc(j.ref)}</span>
+          <span class="chip grey">${TEAM.statusLabel(j.status)}</span>
+        </div>
+        <div class="card"><div class="cb">
+          <div style="font-size:15px;font-weight:750">${esc(j.jobType || 'Job card')}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px">
+            ${esc(j.customer.name || 'No customer')}${j.customer.phone ? ' · ' + esc(j.customer.phone) : ''}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">${esc(j.site.address || 'No location')}</div>
+        </div></div>
+        ${j.instructions ? `<div class="banner b-ok" style="text-align:left;line-height:1.55">
+          <div style="font-weight:800;font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:4px">
+            ${ICON('clipboard-list', 12)} Site instructions</div>
+          <div>${esc(j.instructions).replace(/\n/g, '<br>')}</div></div>` : ''}
+        <div class="card"><div class="ch">Progress</div><div class="cb">
+          <div class="timerow"><span>Assigned to</span><b>${esc(memberName(j.assignedTo))}</b></div>
+          <div class="timerow"><span>Assigned</span><b>${dstr(j.assignedAt)}${j.assignedAt ? ' ' + tstr(j.assignedAt) : ''}</b></div>
+          <div class="timerow"><span>Last update</span><b>${j.updatedAt ? dstr(j.updatedAt) + ' ' + tstr(j.updatedAt) : '—'}</b></div>
+          <div class="timerow"><span>Materials + labour</span><b>${money(mats + (Number(j.labour) || 0))}</b></div>
+          <div class="timerow"><span>Customer signed</span><b>${sig.customer ? 'Yes' : 'Not yet'}</b></div>
+          <div class="timerow"><span>Technician signed</span><b>${sig.technician ? 'Yes' : 'Not yet'}</b></div>
+        </div></div>
+        <div class="banner b-ok" style="text-align:left;line-height:1.6">
+          Updates arrive from ${esc(memberName(j.assignedTo))} as files — ask them to open the job
+          and tap Send update after each visit.</div>
+        <button class="btn ghost sm" onclick="ACT.nudgeMember('${j.assignedTo || ''}')">${ICON('send', 15)} Nudge on WhatsApp</button>
+      </div>`;
+  };
+
+  V.company = () => {
+    const t = teamState();
+    const co = t.company;
+    if (!co || myRole() !== 'owner') return `<div class="pad"><div class="empty"><div class="ei">${ICON('briefcase', 26)}</div>
+      <div class="et">No company yet</div></div>
+      <button class="btn ghost" onclick="ACT.go('team')">Back to team</button></div>`;
+    return `
+      <div class="pad">
+        <div class="banner b-ok" style="text-align:left;line-height:1.6">This stamp prints on every PDF
+          your crew sends — reports and quotations.</div>
+        <div class="field"><label class="fl">Company name</label>
+          <input id="cName" value="${esc(co.name)}"></div>
+        <div class="field"><label class="fl">Address</label>
+          <input id="cAddr" placeholder="12 Sapele Road, Benin City" value="${esc(co.address || '')}"></div>
+        <div class="field"><label class="fl">Phone</label>
+          <input id="cPhone" inputmode="tel" value="${esc(co.phone || '')}"></div>
+        <div class="field"><label class="fl">Email</label>
+          <input id="cEmail" inputmode="email" value="${esc(co.email || '')}"></div>
+        <div class="field"><label class="fl">Bank details (printed on quotations)</label>
+          <input id="cBank" value="${esc(co.bank || '')}"></div>
+        <div class="field"><label class="fl">About the company (printed on quotations)</label>
+          <textarea id="cBio" maxlength="300" rows="3">${esc(co.bio || '')}</textarea></div>
+        <div class="field"><label class="fl">Logo</label>
+          ${co.logo && co.logo.dataUrl ? `
+            <div style="display:flex;align-items:center;gap:10px">
+              <img src="${esc(co.logo.dataUrl)}" alt=""
+                style="width:52px;height:52px;object-fit:contain;background:#F1F5F9;border-radius:10px">
+              <div style="flex:1;font-size:11.5px;color:var(--muted)">Appears on every crew PDF.</div>
+            </div>
+            <div class="btnrow" style="margin-top:10px">
+              <button class="btn ghost sm" style="flex:1" onclick="ACT.pickCompanyLogo()">Replace</button>
+              <button class="btn ghost sm" style="flex:1" onclick="ACT.removeCompanyLogo()">Remove</button>
+            </div>` : `
+            <button class="btn ghost sm" style="width:100%" onclick="ACT.pickCompanyLogo()">＋ Add the company logo</button>`}
+        </div>
+        <button class="btn primary" style="margin-top:6px" onclick="ACT.saveCompany()">Save stamp</button>
+      </div>`;
+  };
+
   /* ---------------- paywall ------------------------------------------ */
 
   // The paywall must never offer a button that goes nowhere — that is
@@ -1162,7 +1921,8 @@
       libdetail: 'Guide', newjob: 'New job card',
       jobcard: S.job ? S.job.ref : 'Job card', checklist: 'Checklist',
       photos: 'Job evidence', signoff: 'Sign-off', report: 'Service report',
-      quote: 'Quotation', jobs: 'My jobs', settings: 'Settings', passport: 'Solar passport'
+      quote: 'Quotation', jobs: 'My jobs', settings: 'Settings', passport: 'Solar passport',
+      team: 'My team', teamjob: S.job ? S.job.ref : 'Crew job', company: 'Company stamp'
     };
     let bar = '';
     if (v !== 'boot' && v !== 'home') {
@@ -1355,6 +2115,15 @@
       if (!S.job) return toast('Job not found');
       S.trade = S.job.trade;
       await loadPhotos(id);
+      // The owner's copy of an assigned job opens read-only: the next
+      // update file would overwrite any edit made here.
+      if (TEAM.isShadow(S.job)) return go('teamjob');
+      // First touch by the assigned technician moves it to in progress,
+      // so the owner's dashboard tells the truth without anyone typing.
+      if (TEAM.isMine(S.job) && S.job.status === 'assigned') {
+        S.job.status = 'in-progress';
+        await saveJob();
+      }
       go(S.job.lockedAt ? 'report' : 'jobcard');
     },
     async saveDraft() { await saveJob(); toast('Draft saved'); go('jobs'); },
@@ -1418,7 +2187,8 @@
       const map = {
         actions: 'home', library: 'home', libdetail: 'library', newjob: 'actions',
         jobcard: 'newjob', checklist: 'jobcard', photos: 'jobcard', signoff: 'photos',
-        report: 'signoff', quote: 'report', passport: 'home'
+        report: 'signoff', quote: 'report', passport: 'home',
+        team: 'settings', teamjob: 'team', company: 'team'
       };
       go(map[S.view] || 'home');
     },
@@ -1454,8 +2224,8 @@
 
     async pdf() {
       const plan = (S.user && S.user.plan) || 'free';
-      const used = S.jobs.filter(j => j.status === 'sent' || j.lockedAt).length;
-      if (plan === 'free' && used >= 3) return showPaywall();
+      const used = S.jobs.filter(j => (j.status === 'sent' || j.lockedAt) && !companyJob(j)).length;
+      if (plan === 'free' && used >= 3 && !companyJob(S.job)) return showPaywall();
       try {
         toast('Building PDF…');
         const blob = await makeReportPdf();
@@ -1472,7 +2242,7 @@
     async quotePdf() {
       try {
         toast('Building quotation…');
-        const bytes = REPORT.buildQuote(S.quote, S.job, S.user || {});
+        const bytes = REPORT.buildQuote(S.quote, S.job, docProfile());
         await shareOrDownload(pdfBlob(bytes), S.quote.number + '.pdf',
           'Quotation ' + S.quote.number + ' — ' + money(S.quote.total));
       } catch (e) { console.error(e); toast('Could not build the PDF', String(e.message || e)); }
@@ -1589,7 +2359,8 @@
         exportedAt: new Date().toISOString(), user: S.user || null,
         jobs: jobs,
         photos: withPhotos ? photoRecs : [],
-        photoCount: photos.length
+        photoCount: photos.length,
+        team: TEAM.serialize()
       };
       const json = JSON.stringify(out);
       const blob = new Blob([json], { type: 'application/json' });
@@ -1628,7 +2399,8 @@
       const out = {
         format: 'rehoteq-field-backup', version: 1,
         exportedAt: new Date().toISOString(), user: S.user || null,
-        jobs: jobs, photos: recs, photoCount: photos.length
+        jobs: jobs, photos: recs, photoCount: photos.length,
+        team: TEAM.serialize()
       };
       const file = new File([JSON.stringify(out)],
         'rehoteq-field-backup-' + new Date().toISOString().slice(0, 10) + '.json',
@@ -1681,6 +2453,9 @@
             await DB.put('photos', rec);
           }
           if (data.user) { S.user = data.user; await DB.setMeta('user', data.user); }
+          // Backups from before teams existed carry no team key at all;
+          // restore() treats that as "nothing to do" rather than an error.
+          const teamNote = data.team ? await TEAM.restore(data.team) : null;
 
           await refreshJobs();
           await refreshEquipment();
@@ -1690,6 +2465,8 @@
           go('home');
           toast('Restored ' + addedJ + ' jobs, ' + addedP + ' photos',
             (noImage ? noImage + ' photo(s) had no image data · ' : '') +
+            (teamNote && (teamNote.company || teamNote.membersAdded)
+              ? 'crew restored · ' : '') +
             (updatedJ ? updatedJ + ' existing job(s) updated' : 'Nothing overwritten'));
         } catch (e) {
           toast('Could not read that file', String(e.message || e));
@@ -1741,7 +2518,242 @@
       S.photos[j.id] = { before: [], during: [], after: [], serial: [] };
       go('report');
       toast('Demo job loaded', 'Tap Generate PDF to see the real output');
-    }
+    },
+
+    /* --- TEAM ----------------------------------------------------------
+       Every transfer below is a file the technician sends on WhatsApp.
+       Nothing here needs a server, a signal, or an account.
+       ---------------------------------------------------------------- */
+    async openTeam() { await TEAM.load(); go('team'); },
+
+    async createCompany() {
+      const r = await TEAM.createCompany();
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      render();
+      toast('Crew created — ' + r.company.name, 'Invite your technicians next');
+    },
+
+    async saveCompany() {
+      const v = id => { const el = $(id); return el ? el.value.trim() : ''; };
+      const r = await TEAM.saveCompany({ name: v('cName') || 'My company',
+        address: v('cAddr'), phone: v('cPhone'), email: v('cEmail'), bank: v('cBank'), bio: v('cBio') });
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      go('team');
+      toast('Company stamp saved', 'It prints on every PDF your crew sends');
+    },
+
+    pickCompanyLogo() {
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = 'image/*';
+      input.onchange = async () => {
+        const f = input.files && input.files[0];
+        if (!f) return;
+        try {
+          const logo = await compressLogo(f);
+          await TEAM.saveCompany({ logo: logo });
+          render();
+          toast('Stamp logo added', 'It now appears on every crew PDF');
+        } catch (e) { toast('Could not read that image', String((e && e.message) || e)); }
+      };
+      input.click();
+    },
+
+    async removeCompanyLogo() {
+      await TEAM.saveCompany({ logo: null });
+      render();
+      toast('Stamp logo removed');
+    },
+
+    async makeInvite() {
+      const r = await TEAM.makeInvite();
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      render();
+      await shareTeamFile(r.file, 'rehoteq-invite-' + r.invite.code + '.json',
+        'Invite sent — code ' + r.invite.code);
+      render();
+    },
+
+    async resendInvite(code) {
+      const f = TEAM.inviteFile(code);
+      if (!f) return toast('That invite is gone', 'Create a fresh one');
+      await shareTeamFile(f, 'rehoteq-invite-' + code + '.json', 'Invite sent — code ' + code);
+    },
+
+    async revokeInvite(code) {
+      if (!confirm('Revoke invite ' + code + '?')) return;
+      await TEAM.revokeInvite(code);
+      render();
+      toast('Invite revoked');
+    },
+
+    receiveFile() {
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = '.json,application/json';
+      input.onchange = async () => {
+        const f = input.files && input.files[0];
+        if (!f) return;
+        let data;
+        try { data = JSON.parse(await f.text()); }
+        catch (e) { return toast('Could not read that file', 'Pick the .json file the app sent'); }
+        if (data.format === 'rehoteq-field-backup') {
+          const e = teamErr('backup'); return toast(e[0], e[1]);
+        }
+        if (!data || data.format !== TEAM_FORMAT || !data.kind) {
+          const e = teamErr('notteam'); return toast(e[0], e[1]);
+        }
+        await TEAM.load();
+        let r;
+        if (data.kind === 'invite') r = await TEAM.applyInvite(data);
+        else if (data.kind === 'acceptance') r = await TEAM.applyAcceptance(data);
+        else if (data.kind === 'assignment') r = await TEAM.applyAssignment(data);
+        else if (data.kind === 'update') r = await TEAM.applyUpdate(data);
+        else if (data.kind === 'removal') r = await TEAM.applyRemoval(data);
+        else { const e = teamErr('notteam'); return toast(e[0], e[1]); }
+        if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+        if (data.kind === 'invite') {
+          go('team');
+          return toast('You joined ' + r.company, 'Now send your acceptance back');
+        }
+        if (data.kind === 'acceptance') {
+          render();
+          const s = TEAM.seats();
+          return toast(r.member.name + ' joined your crew',
+            r.again ? 'Details updated' : 'Seat ' + s.used + ' of ' + s.paid);
+        }
+        if (data.kind === 'assignment') {
+          render();
+          return toast('New job from ' + (data.ownerName || 'your oga') + ' — ' + r.job.ref,
+            (r.photos ? r.photos + ' photo(s) came with it · ' : '') + 'Open it from My jobs');
+        }
+        if (data.kind === 'update') {
+          render();
+          return toast('Update on ' + r.job.ref + ' — ' + TEAM.statusLabel(r.job.status),
+            TEAM.memberName(r.job.assignedTo));
+        }
+        if (data.kind === 'removal') {
+          render();
+          return toast('You were removed from ' + r.company, 'Your job cards stay on this phone');
+        }
+      };
+      input.click();
+    },
+
+    async sendAcceptance() {
+      const f = TEAM.acceptanceFile();
+      if (!f) return toast('Nothing to send', 'Join a crew first');
+      await shareTeamFile(f, 'rehoteq-acceptance-' + f.code + '.json', 'Acceptance sent');
+      await TEAM.markAcceptanceSent();
+      render();
+    },
+
+    assignJob() {
+      const t = teamState();
+      if (!t.members.length) return toast('Invite a technician first', 'There is nobody to assign to yet');
+      const rows = t.members.map(m => `
+        <div class="rowitem" onclick="ACT.pickAssignee('${m.memberId}')">
+          <div class="dotg"></div><div style="flex:1"><div class="jt">${esc(m.name)}</div>
+          <div class="js">${esc(m.phone || 'No number')}</div></div>
+          <div style="color:#94A3B8">›</div></div>`).join('');
+      const sheet = $('paywall');
+      sheet.innerHTML = `
+        <div class="pwsheet"><div class="center" style="margin-bottom:12px">
+          <div style="font-size:15px;font-weight:750">Assign ${esc(S.job.ref)} to…</div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:4px">
+            They get the job as a file — instructions pinned, your stamp on it.</div></div>
+          <div class="card">${rows}</div>
+          <button class="btn ghost sm" onclick="ACT.closePaywall()">Cancel</button></div>`;
+      sheet.classList.add('show');
+    },
+
+    async pickAssignee(memberId) {
+      $('paywall').classList.remove('show');
+      const r = await TEAM.makeAssignment(S.job.id, memberId);
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      await shareTeamFile(r.file, 'rehoteq-job-' + S.job.ref + '.json',
+        'Assigned to ' + r.member.name);
+      go('team');
+    },
+
+    async sendUpdate() {
+      const r = await TEAM.makeUpdate(S.job.id);
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      await shareTeamFile(r.file, 'rehoteq-update-' + S.job.ref + '.json', 'Update sent to your oga');
+    },
+
+    async removeMember(memberId) {
+      const m = memberById(memberId);
+      if (!m) return;
+      if (!confirm('Remove ' + m.name + ' from your crew? Their seat frees up.')) return;
+      const r = await TEAM.makeRemoval(memberId);
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      render();
+      await shareTeamFile(r.file,
+        'rehoteq-removal-' + m.name.replace(/[^A-Za-z0-9]+/g, '') + '.json',
+        m.name + ' removed — send them this notice');
+      render();
+    },
+
+    async leaveTeam() {
+      if (!confirm('Leave your crew? Your job cards stay, but new PDFs lose the company stamp.')) return;
+      const r = await TEAM.leaveTeam();
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      render();
+      toast('You left ' + r.company, 'Your job cards stay on this phone');
+    },
+
+    toggleMember(id) {
+      const t = teamState();
+      t.sel = (t.sel === id) ? null : id;
+      render();
+    },
+
+    nudgeMember(memberId) {
+      const m = memberById(memberId);
+      if (!m) return;
+      const num = CONFIG.waNumber(m.phone || '');
+      if (!num) return toast('No usable number for ' + m.name, 'Ask them for it and update their record');
+      window.open('https://wa.me/' + num + '?text=' +
+        encodeURIComponent('Hello ' + m.name + ' — update your REHOTEQ jobs when you can.'), '_blank');
+    },
+
+    buySeats() {
+      const s = TEAM.seats();
+      const biz = DATA.PLANS.business;
+      const sheet = $('paywall');
+      sheet.innerHTML = '<div class="pwsheet"><div class="center" style="margin-bottom:12px">' +
+        '<div style="font-size:15px;font-weight:750">Add seats</div>' +
+        '<div style="font-size:12px;color:var(--muted);margin-top:4px">' +
+        s.used + ' of ' + s.paid + ' seats used · extra seats ' + money(biz.extraSeat) + ' / month each</div></div>' +
+        '<div class="field"><label class="fl">How many extra seats?</label>' +
+        '<input id="seatN" type="number" value="1" min="1" max="20"></div>' +
+        (payLink('business')
+          ? '<button class="btn primary" onclick="ACT.payBusiness()">Pay on Flutterwave</button>'
+          : '<button class="btn primary" onclick="ACT.seatsWhatsApp()">Message us to pay</button>') +
+        '<button class="btn ghost sm" style="margin-top:9px" onclick="ACT.claimSeats()">I have paid — add the seats</button>' +
+        '<button class="btn ghost sm" style="margin-top:9px" onclick="ACT.closePaywall()">Cancel</button>' +
+        '<div class="center" style="font-size:10.5px;color:#94A3B8;margin-top:12px;line-height:1.6">' +
+        'Seats are added on your word and recorded for sync — REHOTEQ verifies payment when the server lands.</div></div>';
+      sheet.classList.add('show');
+    },
+
+    async claimSeats() {
+      const el = $('seatN');
+      const r = await TEAM.claimSeats(el ? el.value : 1);
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      $('paywall').classList.remove('show');
+      render();
+      toast(r.added + ' seat(s) added — ' + r.paid + ' total', 'Recorded for REHOTEQ to verify');
+    },
+
+    seatsWhatsApp() {
+      const msg = 'Hello REHOTEQ — I need extra Business seats for my crew. My name is ' +
+        ((S.user && S.user.name) || '') + '.';
+      window.open(CONFIG.waUrl(msg), '_blank');
+    },
+
+    // The test suite's eyes: without this it can tap a button but cannot
+    // prove the tap landed on the right screen.
+    _view() { return S.view; }
   };
   window.ACT = ACT;
 
@@ -1819,6 +2831,7 @@
     if (S.user && S.user.trade) S.trade = S.user.trade;
     await refreshJobs();
     await refreshEquipment();
+    await teamLoad();
     // hydrate photo urls for any job we render. A photo restored from a
     // backup may have no blob; createObjectURL would throw and leave the
     // technician with a white screen he cannot clear from the UI.

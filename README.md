@@ -75,6 +75,11 @@ That's the whole product in one tap.
 - ✅ **Backup and restore** — full export (jobs + photos), text-only export,
   and restore onto any device. Merges; never blind-overwrites.
 - ✅ Backup nudge when real work is sitting unbacked-up on the phone
+- ✅ **Crews (Business, offline edition)** — company stamp on every crew PDF,
+  invite-code onboarding, job assignment with pinned instructions, and a
+  supervisor dashboard with monitoring. All of it travels as files over
+  WhatsApp; 5 seats included, extra seats self-declared after payment and
+  reconciled at sync
 
 ---
 
@@ -116,10 +121,12 @@ npm install
 npm test
 ```
 
-187 automated checks in ten suites: a full walkthrough of every screen and
-action, a backup round-trip, and a **wiring audit** that scans every button on
-17 screens and fails if any tap would hit undefined code, and a **domain guard**
-that fails if any printed link points at a domain we don't own. Run it after any change.
+283 automated checks in eleven suites: a full walkthrough of every screen and
+action, a backup round-trip, a **wiring audit** that scans every button on
+20 screens and fails if any tap would hit undefined code, a **domain guard**
+that fails if any printed link points at a domain we don't own, and a team
+suite that runs invite → join → assign → update → dashboard through the real
+functions with two simulated phones. Run it after any change.
 
 Two things are harness limits, not app bugs: jsdom has no canvas backend and
 never decodes images, and `fake-indexeddb` destroys `Blob` instances on clone —
@@ -147,6 +154,44 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.3.0** — **Business crews, offline edition: company stamp, invite codes, assignment and a dashboard — all over WhatsApp files.**
+
+Phase ④ without waiting for the server. The owner starts a company, and the
+company stamp (name, address, phone, email, bank, bio, logo) prints on every
+PDF the whole crew sends. Inviting a technician makes a short phone-readable
+code (`RQ-7K2P-9M4D`) inside an invite file; the technician imports it, joins,
+and sends an acceptance file back; the owner imports that and the seat fills.
+Assigning a job packs it — instructions pinned — into a file; the technician
+works it, taps Send update, and the dashboard row moves from Assigned to
+In progress to Completed as the update files land.
+
+Three deliberate honesties. The owner's copy of an assigned job opens
+**read-only**, because the next update file would overwrite any edit made to
+it. Removing a technician frees the seat at once, but their phone keeps the
+stamp until they import the removal notice — nothing arrives by itself in
+this edition. And extra seats beyond the included 5 are **self-declared after
+payment** (Business extras are ₦2,500/mo each, read from `DATA.PLANS` like
+every other price): the app cannot verify a payment without a server, so the
+claim is queued in the outbox and REHOTEQ reconciles it at sync. Company work
+never burns the technician's 3 free reports — the crew's subscription covers
+it — and the crew (company, members, invites, seats) now rides inside the
+normal backup, so an owner who loses their phone does not lose the member list.
+
+Every record is shaped to match the Firestore model in `FIREBASE_PLAN.md`,
+so stages 5–6 map these objects onto `companies/{id}`, `members/{uid}` and
+`jobs/{jobId}` instead of redesigning them. New suite 6 (96 checks) runs the
+whole round trip through the real functions with two simulated phones:
+invite → join → assign → update → dashboard, plus seat limits, removals,
+backup restore, and the stamp on a generated PDF. The tap suite got teeth at
+the same time: `ACT._view()` lets it prove a tap landed on the right screen
+instead of comparing a string to itself.
+
+Files changed: `app.js` (TEAM module, 3 views, 17 actions), `data.js`
+(Business seats + extra-seat price), `icons.js` + `tools/build-icons.js`
+(users, user-plus, send, inbox, briefcase), `tests/run.js`, `sw.js` (v18),
+`package.json`, `README.md`, `FIREBASE_PLAN.md`. Tests: **283 checks in
+eleven suites**.
 
 **v1.1.5** — **Fixed a landmine on the delivery belt, then merged everything to `main`.**
 
