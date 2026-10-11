@@ -1859,7 +1859,46 @@
   }
 
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    window.addEventListener('load', () => {
+      // updateViaCache:'none' keeps the update check honest. Without it the
+      // browser may serve its own cached copy of sw.js for as long as the
+      // host's cache headers say (ten minutes on GitHub Pages), and a
+      // published update simply never arrives on the phone.
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+        // A new worker sitting in `installed` while this page is already
+        // controlled means one thing: an update downloaded, but the screen
+        // is still running the old app. Never yank the page away mid-job —
+        // offer the reload and let the technician choose the moment.
+        function announce() {
+          if (document.getElementById('swUpdate')) return;
+          const bar = document.createElement('div');
+          bar.id = 'swUpdate';
+          bar.style.cssText = 'position:absolute;left:10px;right:10px;bottom:10px;z-index:70;' +
+            'background:#0F172A;color:#fff;border-radius:13px;padding:12px 14px;' +
+            'display:flex;align-items:center;gap:10px;box-shadow:0 12px 30px rgba(15,23,42,.35)';
+          bar.innerHTML =
+            '<div style="flex:1;font-size:12px;line-height:1.5">A new version of REHOTEQ Field is installed.' +
+            '<span style="display:block;font-size:10.5px;opacity:.72">Reload to switch to it. Your job cards are safe.</span></div>' +
+            '<button id="swUpdateGo" style="border:0;background:#0E7C5A;color:#fff;font:inherit;font-weight:700;' +
+            'font-size:12px;padding:9px 14px;border-radius:9px;cursor:pointer">Reload</button>' +
+            '<button id="swUpdateX" aria-label="Dismiss" style="border:0;background:none;color:#94A3B8;' +
+            'font:inherit;font-size:16px;cursor:pointer;padding:4px">×</button>';
+          document.getElementById('shell').appendChild(bar);
+          bar.querySelector('#swUpdateGo').onclick = () => location.reload();
+          bar.querySelector('#swUpdateX').onclick = () => bar.remove();
+        }
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener('statechange', () => {
+            // controller!=null means this is an update, not the very first
+            // install — nobody needs telling that the app arrived.
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) announce();
+          });
+        });
+        if (reg.waiting && navigator.serviceWorker.controller) announce();
+      }).catch(() => {});
+    });
   }
 
   boot().catch(bootFailed);
