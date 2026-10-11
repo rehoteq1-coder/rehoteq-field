@@ -1,7 +1,9 @@
 # V3 in-app AI diagnosis — architecture, honesty rules, and deployment
 
-**Status:** Built on v1.4.0 (on top of v1.3.0 Business crews).
+**Status:** Built on v1.4.1 (on top of v1.3.0 Business crews).
 **Rule:** Grounded in the curated REHOTEQ troubleshooting library — never a free-form chatbot, never offline-pretend, and never allowed to guess on a fault the library has not verified.
+
+The v1.4.1 release expands mandatory safety coverage to all 10 Engineering & MEP trades. It also adds the three-report Free usage ledger, saved-device account login, and Business worker login files; see the v1.4.1 entry in `README.md` for release details.
 
 ---
 

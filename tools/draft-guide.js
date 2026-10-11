@@ -19,7 +19,19 @@
 
 const https = require('https');
 
-const VALID_TRADES = ['solar', 'electrical', 'cctv', 'networking'];
+const VALID_TRADES = ['electrical', 'solar', 'cctv', 'networking', 'hvac', 'generator', 'plumbing', 'fire_access', 'smarthome', 'ev'];
+const MANDATORY_SAFETY = {
+  electrical: 'ISOLATE FIRST: Switch off at the main isolator, lock off, and prove dead with a tested meter on every conductor before opening the DB board or touching terminations.',
+  solar: 'ISOLATE FIRST: Switch off AC supply and inverter before opening any panel. PV strings stay live in daylight — cover panels or open the DC isolator before touching terminations. Remove rings, watches and bangles.',
+  cctv: 'ISOLATE FIRST: Disconnect camera and NVR power before re-terminating. Use a stable ladder and never work at height in rain, wind or near overhead mains.',
+  networking: 'ISOLATE FIRST: Never run data cable in the same conduit as mains power. Never look into an open fibre connector or open the ISP ONT.',
+  hvac: 'ISOLATE FIRST: Isolate indoor and outdoor unit supplies, lock off and prove dead before opening. Wait for capacitors to discharge; do not vent refrigerant or open a sealed circuit unless qualified.',
+  generator: 'ISOLATE FIRST: Run generators outdoors only because carbon monoxide can kill without warning. Disable automatic start, isolate generator and utility sources, and prevent back-feed before servicing.',
+  plumbing: 'ISOLATE FIRST: Shut off and depressurise water before opening pipework; let hot water cool. Keep clear of nearby electrical equipment and isolate it safely if water is present.',
+  fire_access: 'LIFE SAFETY: Notify the site responsible person and monitoring station before testing, obtain an impairment permit and fire watch, and never leave alarm or sprinkler zones bypassed.',
+  smarthome: 'ISOLATE FIRST: Isolate and prove dead before opening mains-connected smart devices. Keep extra-low-voltage wiring separate from mains and never collect a customer password.',
+  ev: 'ISOLATE FIRST: EV charger circuits carry sustained high current. Isolate, lock off and prove dead; verify earthing and DC-capable residual-current protection to OEM and local requirements.'
+};
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 function parseArgs(argv) {
@@ -37,12 +49,14 @@ function parseArgs(argv) {
 
 function buildDraftPrompt(trade, notes) {
   const t = VALID_TRADES.includes(trade) ? trade : 'solar';
+  const mandatory = MANDATORY_SAFETY[t];
   const system = [
     'You format rough technician field notes from real Nigerian jobs into a structured REHOTEQ Field troubleshooting library entry.',
     'STRICT RULES:',
     '1. Do not invent facts outside the technician’s notes — structure what they saw.',
-    '2. `safety` is MANDATORY and must state isolation/discharge/PPE steps clearly.',
+    '2. `safety` is MANDATORY, starts with the hard-coded trade safety preamble below, then may add relevant job-specific precautions.',
     '3. Output STRICT JSON only — no prose, no markdown fences.',
+    'Mandatory safety preamble for ' + t + ': ' + mandatory,
     'Required JSON schema:',
     '{"id":"string (e.g. sol-overload)","trade":"' + t + '","cat":"string","symptom":"string",' +
       '"code":"string","freq":"high|med","causes":[{"t":"string","p":"HIGH|MED|LOW","d":"string"}],' +
@@ -109,6 +123,9 @@ function validateGuideDraft(entry) {
 function formatGuideForDataJs(entry) {
   const check = validateGuideDraft(entry);
   if (!check.valid) throw new Error('Invalid guide draft: ' + check.reason);
+  const mandatory = MANDATORY_SAFETY[entry.trade];
+  const safety = String(entry.safety || '').trim();
+  const safetyWithPreamble = safety.startsWith(mandatory) ? safety : mandatory + (safety ? ' ' + safety : '');
   const q = s => "'" + String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
   const causes = entry.causes.map(c =>
     '        { t: ' + q(c.t) + ', p: ' + q(c.p) + ',\n          d: ' + q(c.d) + ' }'
@@ -126,7 +143,7 @@ function formatGuideForDataJs(entry) {
     '      checks: [',
     checks,
     '      ],',
-    '      safety: ' + q(entry.safety.trim()) + ',',
+    '      safety: ' + q(safetyWithPreamble) + ',',
     '      parts: [',
     parts,
     '      ],',
@@ -214,6 +231,7 @@ if (require.main === module) {
 
 module.exports = {
   VALID_TRADES,
+  MANDATORY_SAFETY,
   parseArgs,
   buildDraftPrompt,
   validateGuideDraft,

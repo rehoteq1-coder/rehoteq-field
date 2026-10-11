@@ -3,9 +3,9 @@
    The flow: Technician -> Job -> Checklist -> Photos -> Sign-off ->
              Report -> PDF -> WhatsApp
 
-   V1 deliberately contains no AI. The troubleshooting library is
-   curated and deterministic: it works offline, costs nothing per query,
-   and cannot give anyone a dangerous answer.
+   The curated troubleshooting library works offline. AI diagnosis is
+   online-only, safety-first, and grounded in verified library guides; it
+   never writes to a job card without technician confirmation.
    ===================================================================== */
 (function () {
   'use strict';
@@ -28,8 +28,128 @@
     draftProfile: null,
     // V3 fault diagnosis state. Lives separately from S.job so nothing
     // enters a job card until the technician explicitly confirms a cause.
-    diag: { trade: 'solar', fault: '', code: '', equipment: '', busy: false, result: null }
+    diag: { trade: 'solar', fault: '', code: '', equipment: '', busy: false, result: null },
+    accounts: [], usageLedger: { version: 1, reportIds: [], used: 0, count: 0 },
+    workerCode: ''
   };
+
+  const USAGE_LEDGER_KEY = 'rehoteq_usage_ledger_v1';
+  const MAX_FREE_REPORTS = 3;
+  let usageGate = Promise.resolve();
+
+  function cloneRecord(value) {
+    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+  }
+
+  function normalizeUsageLedger(raw) {
+    let source = raw;
+    if (typeof source === 'string') {
+      try { source = JSON.parse(source); } catch (e) { source = Number(source) || 0; }
+    }
+    const ids = [];
+    let explicitCount = 0;
+    if (Array.isArray(source)) {
+      source.forEach(x => {
+        const id = typeof x === 'string' ? x : x && (x.jobId || x.id);
+        if (id && !ids.includes(String(id))) ids.push(String(id));
+      });
+      explicitCount = source.length;
+    } else if (typeof source === 'number') {
+      explicitCount = Math.max(0, Math.floor(source));
+    } else if (source && typeof source === 'object') {
+      const entries = Array.isArray(source.reportIds) ? source.reportIds
+        : Array.isArray(source.jobIds) ? source.jobIds
+          : Array.isArray(source.reports) ? source.reports : [];
+      entries.forEach(x => {
+        const id = typeof x === 'string' ? x : x && (x.jobId || x.id);
+        if (id && !ids.includes(String(id))) ids.push(String(id));
+      });
+      explicitCount = Math.max(0, Math.floor(Number(source.used) || 0),
+        Math.floor(Number(source.count) || 0), Math.floor(Number(source.total) || 0), entries.length);
+    }
+    for (let i = ids.length; i < explicitCount; i++) ids.push('legacy-slot-' + (i + 1));
+    return { version: 1, reportIds: ids, used: ids.length, count: ids.length,
+      updatedAt: source && source.updatedAt ? source.updatedAt : null };
+  }
+
+  function mergeUsageLedgers() {
+    const ledgers = Array.from(arguments).map(normalizeUsageLedger);
+    const ids = [];
+    let maxCount = 0;
+    ledgers.forEach(l => {
+      l.reportIds.forEach(id => { if (!ids.includes(id)) ids.push(id); });
+      maxCount = Math.max(maxCount, l.used);
+    });
+    for (let i = ids.length; i < maxCount; i++) ids.push('legacy-slot-' + (i + 1));
+    return { version: 1, reportIds: ids, used: ids.length, count: ids.length, updatedAt: null };
+  }
+
+  async function persistUsageLedger(ledger) {
+    const normalized = normalizeUsageLedger(ledger);
+    normalized.updatedAt = new Date().toISOString();
+    S.usageLedger = normalized;
+    await DB.setMeta('usageLedger', normalized);
+    try { localStorage.setItem(USAGE_LEDGER_KEY, JSON.stringify(normalized)); } catch (e) { /* storage may be disabled */ }
+    return normalized;
+  }
+
+  async function readUsageLedger() {
+    const saved = await DB.getMeta('usageLedger').catch(() => null);
+    let browserCopy = null;
+    try { browserCopy = localStorage.getItem(USAGE_LEDGER_KEY); } catch (e) { /* storage may be disabled */ }
+    return mergeUsageLedgers(saved, browserCopy);
+  }
+
+  async function loadUsageLedger() {
+    const ledger = await readUsageLedger();
+    const savedJobs = await DB.all('jobs').catch(() => []);
+    savedJobs.forEach(job => {
+      if (!job || !job.id || job.isDemo || job.companyId || !(job.lockedAt || job.status === 'sent')) return;
+      if (!ledger.reportIds.includes(String(job.id))) ledger.reportIds.push(String(job.id));
+    });
+    ledger.used = ledger.reportIds.length;
+    ledger.count = ledger.used;
+    return persistUsageLedger(ledger);
+  }
+
+  async function canGenerateReport(job) {
+    const reserve = async () => {
+      if (!job || !job.id) return false;
+      const ledger = await loadUsageLedger();
+      if (job.isDemo || job.companyId || companyJob(job)) return true;
+      if (isOwnerAccount() || ((S.user && S.user.plan) || 'free') !== 'free') return true;
+      const reportId = String(job.id);
+      if (ledger.reportIds.includes(reportId)) return true;
+      if (ledger.used >= MAX_FREE_REPORTS) return false;
+      ledger.reportIds.push(reportId);
+      ledger.used = ledger.reportIds.length;
+      ledger.count = ledger.used;
+      await persistUsageLedger(ledger);
+      return true;
+    };
+    const pending = usageGate.then(reserve, reserve);
+    usageGate = pending.then(() => undefined, () => undefined);
+    return pending;
+  }
+
+  async function loadAccounts() {
+    const saved = await DB.getMeta('accounts');
+    S.accounts = Array.isArray(saved) ? saved : [];
+    return S.accounts;
+  }
+
+  async function saveAccount(profile) {
+    if (!profile || !profile.uid) return [];
+    const accounts = await loadAccounts();
+    const i = accounts.findIndex(a => a && a.uid === profile.uid);
+    const snapshot = cloneRecord(profile);
+    snapshot.lastLoginAt = new Date().toISOString();
+    if (i < 0) accounts.unshift(snapshot);
+    else accounts[i] = snapshot;
+    await DB.setMeta('accounts', accounts);
+    S.accounts = accounts;
+    return accounts;
+  }
 
   function isOwnerEmail(email) {
     if (window.CONFIG && typeof CONFIG.isOwner === 'function') return CONFIG.isOwner(email);
@@ -40,7 +160,10 @@
   function isOwnerAccount(u, fb) {
     const user = u !== undefined ? u : S.user;
     const fbU = fb !== undefined ? fb : S.fbUser;
-    return Boolean((user && isOwnerEmail(user.email)) || (fbU && isOwnerEmail(fbU.email)));
+    // A profile's explicit email is authoritative. In particular, an owner
+    // must lose local owner mode immediately after changing that email.
+    if (user && String(user.email || '').trim()) return isOwnerEmail(user.email);
+    return Boolean(fbU && isOwnerEmail(fbU.email));
   }
 
   /* ---------------- account ----------------------------------------
@@ -369,10 +492,11 @@
   const CODE_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
   function teamState() {
-    if (!S.team) S.team = { company: null, members: [], invites: [], seats: null, sel: null };
+    if (!S.team) S.team = { company: null, members: [], invites: [], workerLogins: [], seats: null, sel: null };
     if (!S.team.seats) S.team.seats = { paid: DATA.PLANS.business.seats, selfDeclared: false, claimedAt: null };
     if (!Array.isArray(S.team.members)) S.team.members = [];
     if (!Array.isArray(S.team.invites)) S.team.invites = [];
+    if (!Array.isArray(S.team.workerLogins)) S.team.workerLogins = [];
     return S.team;
   }
 
@@ -455,6 +579,7 @@
     await DB.setMeta('company', t.company);
     await DB.setMeta('teamMembers', t.members);
     await DB.setMeta('teamInvites', t.invites);
+    await DB.setMeta('workerLogins', t.workerLogins);
     await DB.setMeta('teamSeats', t.seats);
   }
 
@@ -463,6 +588,7 @@
     t.company = await DB.getMeta('company');
     t.members = (await DB.getMeta('teamMembers')) || [];
     t.invites = (await DB.getMeta('teamInvites')) || [];
+    t.workerLogins = (await DB.getMeta('workerLogins')) || [];
     t.seats = (await DB.getMeta('teamSeats')) ||
       { paid: DATA.PLANS.business.seats, selfDeclared: false, claimedAt: null };
     if (S.user && !S.user.uid) {
@@ -545,6 +671,99 @@
       return { used: t.members.length, paid: (t.seats && t.seats.paid) || DATA.PLANS.business.seats };
     },
 
+    workerLogins() { return teamState().workerLogins.slice(); },
+
+    async createWorkerLogin(details) {
+      const t = teamState();
+      if (myRole() !== 'owner' || !t.company) return { ok: false, error: 'notowner' };
+      if (!S.user || S.user.plan !== 'business') return { ok: false, error: 'business' };
+      const active = t.workerLogins.filter(w => w && w.status !== 'revoked');
+      const workerSlots = new Set(t.members.map(m => String(m.memberId))
+        .concat(active.map(w => String(w.workerId || w.code))));
+      if (workerSlots.size >= DATA.PLANS.business.seats) return { ok: false, error: 'full' };
+      const input = typeof details === 'string' ? { name: details } : (details || {});
+      let code = makeCode();
+      while (t.workerLogins.some(w => w && w.code === code) ||
+             t.invites.some(i => i && i.code === code)) code = makeCode();
+      const worker = {
+        workerId: 'WK-' + IMG.uid(),
+        name: String(input.name || '').trim() || 'Worker ' + (workerSlots.size + 1),
+        phone: String(input.phone || '').trim(),
+        trade: DATA.TRADES.some(x => x.id === input.trade) ? input.trade : 'electrical',
+        code: code, status: 'waiting', createdAt: new Date().toISOString()
+      };
+      t.workerLogins.push(worker);
+      await teamSave();
+      DB.queue({ type: 'team.worker-login', id: worker.workerId });
+      return { ok: true, worker: worker, file: TEAM.workerLoginFile(code) };
+    },
+
+    workerLoginFile(code) {
+      const t = teamState();
+      const worker = t.workerLogins.find(w => w && w.code === String(code || '').toUpperCase());
+      if (!worker || !t.company) return null;
+      return {
+        format: TEAM_FORMAT, kind: 'worker-login', code: worker.code,
+        companyId: t.company.id, companyName: t.company.name,
+        ownerName: t.company.ownerName || '', branding: brandSnapshot(t.company),
+        worker: cloneRecord(worker), createdAt: worker.createdAt
+      };
+    },
+
+    async importWorkerLogin(file) {
+      const code = String(file && (file.code || (file.worker && file.worker.code)) || '').trim().toUpperCase();
+      if (!file || file.format !== TEAM_FORMAT || file.kind !== 'worker-login') {
+        return { ok: false, error: 'notworkerfile' };
+      }
+      if (!/^RQ-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code) || !file.companyId ||
+          !file.branding || !file.branding.name || !file.worker ||
+          file.worker.code !== code || !file.worker.workerId) {
+        return { ok: false, error: 'damaged' };
+      }
+      const imported = (await DB.getMeta('workerLoginFiles')) || [];
+      const index = imported.findIndex(x => x && x.code === code);
+      const saved = cloneRecord(file);
+      if (index < 0) imported.push(saved); else imported[index] = saved;
+      await DB.setMeta('workerLoginFiles', imported);
+      S.workerCode = code;
+      return { ok: true, company: file.branding.name, code: code };
+    },
+
+    async loginWithWorkerCode(code) {
+      const normalized = String(code || '').trim().toUpperCase().replace(/\s+/g, '');
+      if (!/^RQ-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(normalized)) return { ok: false, error: 'nocode' };
+      const imported = (await DB.getMeta('workerLoginFiles')) || [];
+      let file = imported.find(x => x && x.code === normalized) || null;
+      if (!file) file = TEAM.workerLoginFile(normalized);
+      if (!file) return { ok: false, error: 'nocode' };
+      const worker = file.worker || {};
+      const accounts = (await DB.getMeta('accounts')) || [];
+      const previous = accounts.find(a => a && a.uid === worker.workerId) || {};
+      const priorMemberOf = previous.memberOf || {};
+      const user = Object.assign({}, previous, {
+        uid: worker.workerId,
+        name: worker.name || previous.name || 'Worker',
+        phone: worker.phone || previous.phone || '',
+        trade: worker.trade || previous.trade || 'electrical',
+        company: (file.branding && file.branding.name) || file.companyName || 'Company crew',
+        plan: 'free', ownerAccess: false,
+        memberOf: {
+          companyId: file.companyId,
+          code: normalized,
+          branding: cloneRecord(file.branding),
+          ownerName: file.ownerName || '',
+          joinedAt: priorMemberOf.joinedAt || new Date().toISOString(),
+          sent: Boolean(priorMemberOf.sent), workerCode: true
+        }
+      });
+      S.user = user;
+      S.team = null;
+      await DB.setMeta('user', user);
+      await saveAccount(user);
+      await teamLoad();
+      return { ok: true, user: user, company: user.company };
+    },
+
     async createCompany() {
       if (!S.user) return { ok: false, error: 'noprofile' };
       const t = teamState();
@@ -575,7 +794,9 @@
     async makeInvite() {
       const t = teamState();
       if (myRole() !== 'owner' || !t.company) return { ok: false, error: 'notowner' };
-      const code = makeCode();
+      let code = makeCode();
+      while (t.invites.some(i => i && i.code === code) ||
+             t.workerLogins.some(w => w && w.code === code)) code = makeCode();
       const inv = { code: code, companyId: t.company.id, status: 'waiting', createdAt: new Date().toISOString() };
       t.invites.push(inv);
       await teamSave();
@@ -611,6 +832,7 @@
         branding: file.branding, ownerName: file.ownerName || '',
         joinedAt: new Date().toISOString(), sent: false };
       await DB.setMeta('user', S.user);
+      await saveAccount(S.user);
       return { ok: true, company: file.branding.name };
     },
 
@@ -625,6 +847,7 @@
       if (S.user && S.user.memberOf) {
         S.user.memberOf.sent = true;
         await DB.setMeta('user', S.user);
+        await saveAccount(S.user);
       }
     },
 
@@ -634,15 +857,18 @@
       if (!file || file.format !== TEAM_FORMAT || file.kind !== 'acceptance') return { ok: false, error: 'notaccept' };
       if (file.companyId !== t.company.id) return { ok: false, error: 'wrongcrew' };
       const inv = t.invites.find(i => i.code === file.code);
-      if (!inv) return { ok: false, error: 'nocode' };
+      const workerLogin = t.workerLogins.find(w => w.code === file.code);
+      if (!inv && !workerLogin) return { ok: false, error: 'nocode' };
       const m = file.member || {};
       if (!m.memberId || !m.name) return { ok: false, error: 'damaged' };
+      if (workerLogin && m.memberId !== workerLogin.workerId) return { ok: false, error: 'notyou' };
       // Re-importing an acceptance (the file got sent twice) updates the
       // record instead of eating a second seat.
       const dup = t.members.find(x => x.memberId === m.memberId);
       if (dup) {
         dup.name = m.name; dup.phone = m.phone || dup.phone;
-        inv.status = 'joined';
+        if (inv) inv.status = 'joined';
+        if (workerLogin) { workerLogin.status = 'joined'; workerLogin.memberId = m.memberId; }
         await teamSave();
         return { ok: true, member: dup, again: true };
       }
@@ -651,7 +877,8 @@
       const rec = { memberId: m.memberId, name: m.name, phone: m.phone || '',
         joinedAt: m.joinedAt || new Date().toISOString(), code: file.code };
       t.members.push(rec);
-      inv.status = 'joined';
+      if (inv) inv.status = 'joined';
+      if (workerLogin) { workerLogin.status = 'joined'; workerLogin.memberId = m.memberId; workerLogin.name = m.name; }
       await teamSave();
       DB.queue({ type: 'team.join', id: rec.memberId });
       return { ok: true, member: rec };
@@ -756,6 +983,7 @@
       const name = (m.branding && m.branding.name) || 'your crew';
       delete S.user.memberOf;
       await DB.setMeta('user', S.user);
+      await saveAccount(S.user);
       return { ok: true, company: name };
     },
 
@@ -765,6 +993,7 @@
       const name = (m.branding && m.branding.name) || 'your crew';
       delete S.user.memberOf;
       await DB.setMeta('user', S.user);
+      await saveAccount(S.user);
       return { ok: true, company: name };
     },
 
@@ -788,8 +1017,9 @@
     // phone loses the member list too unless it is backed up with the jobs.
     serialize() {
       const t = teamState();
-      if (!t.company && !t.members.length && !t.invites.length) return null;
-      return { company: t.company, members: t.members, invites: t.invites, seats: t.seats };
+      if (!t.company && !t.members.length && !t.invites.length && !t.workerLogins.length) return null;
+      return { company: t.company, members: t.members, invites: t.invites,
+        workerLogins: t.workerLogins, seats: t.seats };
     },
 
     async restore(saved) {
@@ -805,6 +1035,9 @@
       });
       (saved.invites || []).forEach(i => {
         if (i && i.code && !t.invites.find(x => x.code === i.code)) t.invites.push(i);
+      });
+      (saved.workerLogins || []).forEach(w => {
+        if (w && w.code && !t.workerLogins.find(x => x.code === w.code)) t.workerLogins.push(w);
       });
       if (saved.seats && Number(saved.seats.paid) > t.seats.paid) t.seats = saved.seats;
       await teamSave();
@@ -830,6 +1063,8 @@
       damaged: ['That file is damaged', 'Ask them to send it again'],
       notteam: ['That is not a team file', 'Pick the file the app sent, ending in .json'],
       backup: ['That is a backup file', 'Use Restore from backup in Settings'],
+      business: ['Business plan required', 'Worker login codes are available to Business company owners'],
+      notworkerfile: ['That is not a worker login file', 'Ask the company owner to send the REHOTEQ worker file'],
       exists: ['You already run a crew', null],
       member: ['You work with a crew already', 'Leave it first, then start your own'],
       runscrew: ['You run a crew — crews cannot join crews', null],
@@ -884,10 +1119,16 @@
      Exposed as window.DIAG so the test suite can verify every rule.
      ------------------------------------------------------------------ */
   const DIAG_SAFETY = {
-    solar: 'ISOLATE FIRST: Switch off AC supply and inverter before opening any panel. PV strings stay live in daylight — cover panels or open the DC isolator before touching terminations. Remove rings, watches and bangles.',
     electrical: 'ISOLATE FIRST: Switch off at the main isolator, lock off, and prove dead with a tested meter on every conductor before opening the DB board or touching terminations.',
+    solar: 'ISOLATE FIRST: Switch off AC supply and inverter before opening any panel. PV strings stay live in daylight — cover panels or open the DC isolator before touching terminations. Remove rings, watches and bangles.',
     cctv: 'ISOLATE FIRST: Disconnect camera and NVR power before re-terminating. Use a stable ladder and never work at height in rain, wind or near overhead mains.',
-    networking: 'ISOLATE FIRST: Never run data cable in the same conduit as mains power. Never look into an open fibre connector or open the ISP ONT.'
+    networking: 'ISOLATE FIRST: Never run data cable in the same conduit as mains power. Never look into an open fibre connector or open the ISP ONT.',
+    hvac: 'ISOLATE FIRST: Isolate indoor and outdoor unit supplies, lock off and prove dead before opening. Wait for capacitors to discharge; do not vent refrigerant or open a sealed circuit unless qualified.',
+    generator: 'ISOLATE FIRST: Run generators outdoors only because carbon monoxide can kill without warning. Disable automatic start, isolate generator and utility sources, and prevent back-feed before servicing.',
+    plumbing: 'ISOLATE FIRST: Shut off and depressurise water before opening pipework; let hot water cool. Keep clear of nearby electrical equipment and isolate it safely if water is present.',
+    fire_access: 'LIFE SAFETY: Notify the site responsible person and monitoring station before testing, obtain an impairment permit and fire watch, and never leave alarm or sprinkler zones bypassed.',
+    smarthome: 'ISOLATE FIRST: Isolate and prove dead before opening mains-connected smart devices. Keep extra-low-voltage wiring separate from mains and never collect a customer password.',
+    ev: 'ISOLATE FIRST: EV charger circuits carry sustained high current. Isolate, lock off and prove dead; verify earthing and DC-capable residual-current protection to OEM and local requirements.'
   };
 
   const DIAG_OUT_OF_SCOPE = [
@@ -1288,10 +1529,47 @@
   /* ---------------- views ------------------------------------------- */
   const V = {};
 
+  function loginPanel() {
+    const accounts = Array.isArray(S.accounts) ? S.accounts : [];
+    return `
+      <div class="sec" style="margin-top:4px">Log in / Worker</div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="ch">Saved on this device</div>
+        <div class="cb">
+          ${accounts.length ? accounts.map(a => `
+            <button class="rowitem" style="width:100%;border:0;background:transparent;text-align:left;font:inherit;cursor:pointer"
+              onclick="ACT.loginAccount('${esc(a.uid)}')">
+              <div class="dotg"></div><div style="flex:1;min-width:0">
+                <div class="jt">${esc(a.name || a.email || 'Technician')}</div>
+                <div class="js">${esc(a.email || a.company || 'Device profile')} · ${esc(a.plan || 'free')}</div>
+              </div><div style="color:#94A3B8">›</div>
+            </button>`).join('')
+            : '<div style="font-size:12px;color:var(--muted);line-height:1.5">No saved accounts yet. Log in once on this device and your profile will be saved here.</div>'}
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="ch">Worker code</div>
+        <div class="cb">
+          <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:10px">
+            Ask your company owner to send you a Worker Login JSON file. Import it here, then enter its RQ code.
+          </div>
+          <div class="field"><label class="fl">RQ worker code</label>
+            <input id="workerCode" autocomplete="one-time-code" autocapitalize="characters" maxlength="12"
+              placeholder="RQ-ABCD-EFGH" value="${esc(S.workerCode || '')}"></div>
+          <div class="btnrow">
+            <button class="btn primary sm" style="flex:1" onclick="ACT.workerCodeLogin()">Log in with code</button>
+            <button class="btn ghost sm" style="flex:1" onclick="ACT.receiveFile()">Import worker file</button>
+          </div>
+        </div>
+      </div>
+      ${window.FB && window.FB.enabled() ? `<button class="btn ghost sm" onclick="ACT.signIn()">${ICON('log-in', 15)} Sign in with Google</button>` : ''}`;
+  }
+
   V.boot = () => {
     const u = S.user || S.draftProfile || {};
     const isEditing = Boolean(S.user && S.user.name);
     const mode = S.onboardMode || 'individual';
+    const showLogin = mode === 'login' && !isEditing;
     const showDocFields = Boolean(S.user || mode === 'company');
     const logoObj = (S.user && S.user.logo) || (S.draftProfile && S.draftProfile.logo) || null;
     return `
@@ -1307,12 +1585,12 @@
             </div>
           </div>
           <div class="h-lead">
-            Built for Solar, Electrical, CCTV &amp; Networking technicians and engineering companies.
+            Built for electrical, solar, security, networking, building services, automation and EV technicians.
             Turn every site visit into tamper-evident photo proof, a signed PDF service report,
-            a quotation, and a QR solar passport on WhatsApp.
+            a quotation, and a QR equipment passport on WhatsApp.
           </div>
           <div class="land-metrics">
-            <div><b>4 Trades</b><span>Solar · Elec · CCTV · Net</span></div>
+            <div><b>${DATA.TRADES.length} Trades</b><span>Engineering &amp; MEP teams</span></div>
             <div><b>${DATA.LIBRARY.length} Guides + AI</b><span>Grounded fault cards</span></div>
             <div><b>PDF + QR</b><span>Stamped for WhatsApp</span></div>
           </div>
@@ -1360,6 +1638,11 @@
             <div class="rt-t">As a Company / Crew</div>
             <div class="rt-d">Engineering firm · company stamp, 5-seat crew &amp; job dispatch</div>
           </button>
+          <button class="role-tab ${showLogin ? 'on' : ''}" onclick="ACT.loginSaved()">
+            <div class="rt-top">${ICON('log-in', 18)} ${showLogin ? ICON('check', 15) : ''}</div>
+            <div class="rt-t">Log in / Worker</div>
+            <div class="rt-d">Return to a saved profile or enter a company code</div>
+          </button>
         </div>` : `
         <div class="center" style="margin-bottom:22px">
           <div style="width:56px;height:56px;border-radius:17px;margin:0 auto 10px;
@@ -1370,6 +1653,7 @@
           <div style="font-size:12px;color:#64748B;margin-top:4px">Edit your technician &amp; business profile</div>
         </div>`}
 
+      ${showLogin ? loginPanel() : `
       <div class="card" style="margin-bottom:12px">
         <div class="ch">${mode === 'company' ? 'Company &amp; lead details' : 'Technician profile'}</div>
         <div class="cb">
@@ -1431,7 +1715,7 @@
         </button>` : ''}
       <div class="center" style="font-size:10.5px;color:#94A3B8;margin-top:14px;line-height:1.6">
         No account needed. Everything is stored on this device until you choose to sync.
-      </div>
+      </div>`}
     </div>`;
   };
 
@@ -1440,8 +1724,8 @@
     const owner = isOwnerAccount();
     // Company work is covered by the crew's subscription, so it never
     // burns the technician's own free reports.
-    const used = S.jobs.filter(j => (j.status === 'sent' || j.lockedAt) && !companyJob(j)).length;
-    const limit = (!owner && plan === 'free') ? 3 : -1;
+    const used = Math.max(0, Number((S.usageLedger && S.usageLedger.used) || 0));
+    const limit = (!owner && plan === 'free') ? MAX_FREE_REPORTS : -1;
     const pct = limit < 0 ? 0 : Math.min(100, (used / limit) * 100);
     const cont = S.jobs.filter(j => !j.lockedAt && j.status !== 'sent').slice(0, 2);
     const meterText = owner
@@ -2104,6 +2388,8 @@
               : 'Not set'}</span></div>
           <div class="srow" style="cursor:pointer" onclick="ACT.editProfile()">
             <span class="si">${ICON('pencil', 17)}</span><span class="sl">Edit profile</span><span style="color:#94A3B8">›</span></div>
+          <div class="srow" style="cursor:pointer" onclick="ACT.logout()">
+            <span class="si">${ICON('log-out', 17)}</span><span class="sl">Log out / switch account</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Team</div>
@@ -2128,7 +2414,7 @@
             </div>` : ''}
           <div class="srow"><span class="si">${ICON('star', 17)}</span>
             <span class="sl">Plan<br><span style="font-size:11px;color:var(--muted);font-weight:500">
-              ${owner ? 'Owner · all plans unlocked (' + esc(plan) + ')' : plan === 'business' ? 'Business · 5 seats & unlimited' : plan === 'free' ? 'Free · 3 reports/month' : 'Pro · unlimited'}</span></span>
+              ${owner ? 'Owner · all plans unlocked (' + esc(plan) + ')' : plan === 'business' ? 'Business · 5 seats & unlimited' : plan === 'free' ? 'Free · 3 reports on this device' : 'Pro · unlimited'}</span></span>
             <button class="switch ${plan !== 'free' ? 'on' : ''}" onclick="ACT.togglePlan(this)"></button></div>
           <div class="srow" onclick="ACT.goPlan()"><span class="si">${ICON('credit-card', 17)}</span>
             <span class="sl">Plans &amp; pricing</span><span style="color:#94A3B8">›</span></div>
@@ -2183,7 +2469,7 @@
             <span class="sl" style="color:#DC2626">Delete everything on this device</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.7">
-          REHOTEQ Field v1.0 · PWA<br>Built for the man holding the phone.
+          REHOTEQ Field v1.4.1 · PWA<br>Built for the people holding the phone.
         </div>
       </div>`;
   };
@@ -2273,6 +2559,10 @@
     const s = TEAM.seats();
     const biz = DATA.PLANS.business;
     const waiting = t.invites.filter(i => i.status === 'waiting');
+    const workerLogins = TEAM.workerLogins();
+    const workerSlots = new Set(t.members.map(m => String(m.memberId))
+      .concat(workerLogins.filter(w => w.status !== 'revoked').map(w => String(w.workerId || w.code))));
+    const businessPlan = Boolean(S.user && S.user.plan === 'business');
     const pct = s.paid ? Math.min(100, (s.used / s.paid) * 100) : 0;
     return `
       <div class="pad">
@@ -2295,6 +2585,27 @@
         <div class="btnrow" style="margin-top:9px">
           <button class="btn ghost sm" style="flex:1" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Receive file</button>
           <button class="btn ghost sm" style="flex:1" onclick="ACT.buySeats()">${ICON('plus', 15)} Seats</button>
+        </div>
+        <div class="card" style="margin-top:12px">
+          <div class="ch">Worker logins · ${Math.min(workerSlots.size, biz.seats)} of ${biz.seats}</div>
+          <div class="cb">
+            <div style="font-size:11.5px;color:var(--muted);line-height:1.55;margin-bottom:9px">
+              Create a code and send its login file to a worker. They import the file under Log in / Worker, then enter the RQ code.
+            </div>
+            ${businessPlan ? '' : '<div class="hintline" style="margin:0 0 9px">Switch this company account to Business to create worker logins.</div>'}
+            <div class="field"><label class="fl">Worker name (optional)</label>
+              <input id="workerLoginName" placeholder="Worker 1"></div>
+            <button class="btn ${businessPlan && workerSlots.size < biz.seats ? 'primary' : 'ghost'} sm" style="width:100%"
+              onclick="ACT.createWorkerLogin()" ${businessPlan && workerSlots.size < biz.seats ? '' : 'disabled'}>
+              ${ICON('user-plus', 15)} Create worker login</button>
+            ${workerLogins.length ? `<div style="margin-top:10px">
+              ${workerLogins.map(w => `<div class="timerow">
+                <span style="min-width:0"><b>${esc(w.name || 'Worker')}</b><br>
+                  <span class="mono" style="font-size:11px">${esc(w.code)}</span> · ${w.status === 'joined' ? 'joined' : 'login ready'}</span>
+                <button class="btn ghost sm" style="width:auto;padding:8px 10px" onclick="ACT.sendWorkerLogin('${esc(w.code)}')">Send file</button>
+              </div>`).join('')}
+            </div>` : ''}
+          </div>
         </div>
         <div class="sec">Technicians (${t.members.length})</div>
         ${t.members.length ? t.members.map(m => {
@@ -2549,7 +2860,7 @@
           <div style="margin-bottom:4px">${ICON('lock', 32)}</div>
           <div style="font-size:16px;font-weight:750;letter-spacing:-.01em">You&rsquo;ve used all 3 free reports</div>
           <div style="font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5">
-            Your report is ready. One extra job a year pays for this.</div>
+            Your report is ready. Upgrade for unlimited reports whenever your work needs it.</div>
         </div>
         <div class="plan">
           <div class="badge">MOST POPULAR</div>
@@ -2560,7 +2871,7 @@
           <div class="feat"><span class="tk">${ICON('check', 12)}</span>Quotations that get accepted</div>
           <div class="feat"><span class="tk">${ICON('check', 12)}</span>Evidence packs, GPS, signatures</div>
           <div class="feat"><span class="tk">${ICON('check', 12)}</span>Offline mode, syncs later</div>
-          <div class="feat"><span class="tk">${ICON('check', 12)}</span>All 4 trades + full checklists</div>
+          <div class="feat"><span class="tk">${ICON('check', 12)}</span>All 10 engineering &amp; MEP trades + full checklists</div>
         </div>
         ${payBtns()}
         <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.closePaywall()">Maybe later</button>
@@ -2669,6 +2980,85 @@
   const ACT = {
     go, toast,
     isOwner: () => isOwnerAccount(),
+    canGenerateReport: canGenerateReport,
+
+    async loginSaved(accountId) {
+      if (accountId) return ACT.loginAccount(accountId);
+      S.accounts = await loadAccounts();
+      S.user = null;
+      S.draftProfile = null;
+      S.onboardMode = 'login';
+      go('boot');
+    },
+
+    async loginAccount(accountId) {
+      const accounts = await loadAccounts();
+      const key = String(accountId || '').trim();
+      const account = accounts.find(a => a && (String(a.uid) === key ||
+        String(a.email || '').trim().toLowerCase() === key.toLowerCase())) ||
+        (Number.isInteger(Number(key)) ? accounts[Number(key)] : null);
+      if (!account) return toast('Saved account not found', 'Create a new profile or log in with a worker code');
+      S.user = cloneRecord(account);
+      delete S.user.lastLoginAt;
+      if (!S.user.uid) S.user.uid = uid();
+      S.fbUser = null;
+      S.trade = S.user.trade || 'solar';
+      S.job = null;
+      S.photos = {};
+      await DB.setMeta('user', S.user);
+      await saveAccount(S.user);
+      await TEAM.load();
+      await refreshJobs();
+      await refreshEquipment();
+      await loadUsageLedger();
+      S.onboardMode = 'individual';
+      go('home');
+      toast('Welcome back', S.user.name || S.user.email || 'Your profile is ready');
+    },
+
+    async workerCodeLogin(code) {
+      const field = $('workerCode');
+      const value = String(code || (field && field.value) || S.workerCode || '').trim().toUpperCase();
+      if (!value) return toast('Enter your worker code');
+      S.workerCode = value;
+      const result = await TEAM.loginWithWorkerCode(value);
+      if (!result.ok) {
+        const e = teamErr(result.error);
+        return toast(e[0], e[1]);
+      }
+      S.user = result.user || S.user;
+      S.trade = (S.user && S.user.trade) || 'electrical';
+      S.job = null;
+      S.photos = {};
+      S.workerCode = '';
+      await TEAM.load();
+      await refreshJobs();
+      await refreshEquipment();
+      await loadUsageLedger();
+      go('home');
+      toast('Worker login successful', myCompanyName() || 'Company workspace ready');
+    },
+
+    async logout() {
+      if (S.user) await saveAccount(S.user);
+      if (S.fbUser && window.FB && typeof window.FB.signOut === 'function') {
+        try { await window.FB.signOut(); } catch (e) { /* local logout still succeeds */ }
+      }
+      S.fbUser = null;
+      S.user = null;
+      S.team = null;
+      S.job = null;
+      S.photos = {};
+      S.jobs = [];
+      S.equipment = [];
+      S.draftProfile = null;
+      S.workerCode = '';
+      S.onboardMode = 'login';
+      await DB.setMeta('user', null);
+      S.accounts = await loadAccounts();
+      go('boot');
+      toast('Logged out', 'Your device account is saved on this phone');
+    },
 
     setOnboardMode(mode) {
       const pick = id => { const el = $(id); return el ? el.value : null; };
@@ -2696,10 +3086,11 @@
         const trade = (tradeEl && tradeEl.value) || 'solar';
         S.user = {
           uid: uid(), name: name, phone: phone, trade: trade,
-          company: 'REHOTEQ Technologies', plan: 'free',
+          company: 'REHOTEQ Technologies', plan: 'free', ownerAccess: false,
           bank: '', address: '', email: '', logo: null, bio: ''
         };
         await DB.setMeta('user', S.user);
+        await saveAccount(S.user);
       }
       go('team');
       ACT.receiveFile();
@@ -2711,6 +3102,7 @@
       S.user.plan = plan;
       if (isOwnerAccount(S.user, S.fbUser)) S.user.ownerAccess = true;
       await DB.setMeta('user', S.user);
+      await saveAccount(S.user);
       render();
       toast('Plan set to ' + plan.charAt(0).toUpperCase() + plan.slice(1),
         isOwnerAccount(S.user, S.fbUser) ? 'Owner access — all plans unlocked' : '');
@@ -2726,6 +3118,7 @@
         name: name, phone: $('iPhone').value.trim(), trade: $('iTrade').value,
         company: $('iCompany').value.trim() || 'REHOTEQ Technologies',
         plan: prev.plan || 'free',
+        ownerAccess: Boolean(prev.ownerAccess),
         // carried through untouched — these are edited on the same screen
         // once a profile exists, and must not be wiped on first run
         bank: prev.bank || '', address: prev.address || '',
@@ -2741,15 +3134,25 @@
       if (pick('iBank') !== null) S.user.bank = pick('iBank');
       if (pick('iBio') !== null) S.user.bio = pick('iBio');
 
-      if (isOwnerAccount(S.user, S.fbUser)) {
+      const wasOwnerProfile = isOwnerEmail(prev.email) || Boolean(prev.ownerAccess);
+      const isOwnerProfile = isOwnerEmail(S.user.email);
+      if (isOwnerProfile) {
         S.user.ownerAccess = true;
-        if (!prev.plan || prev.plan === 'free') S.user.plan = 'business';
+        if (!wasOwnerProfile && (!prev.plan || prev.plan === 'free')) S.user.plan = 'business';
+      } else if (wasOwnerProfile) {
+        // Owner access belongs to the owner email, not to stale profile
+        // state. Changing that email returns the profile to the Free plan.
+        S.user.ownerAccess = false;
+        S.user.plan = 'free';
+      } else {
+        S.user.ownerAccess = false;
       }
 
       S.trade = S.user.trade;
       S.draftProfile = null;
       S.onboardMode = 'individual';
       await DB.setMeta('user', S.user);
+      await saveAccount(S.user);
       if (wasCompanyMode && TEAM.role() === 'none') {
         await TEAM.createCompany();
       }
@@ -2906,8 +3309,10 @@
     },
 
     async finish() {
-      const s = S.job.signatures;
+      if (!S.job) return toast('Open a job first');
+      const s = S.job.signatures || {};
       if (!s.customer || !s.technician) return toast('Both signatures are needed', 'That is what locks the job as evidence');
+      if (!(await canGenerateReport(S.job))) return showPaywall();
       S.job.completedAt = new Date().toISOString();
       S.job.lockedAt = new Date().toISOString();
       S.job.status = 'completed';
@@ -3040,9 +3445,8 @@
     },
 
     async pdf() {
-      const plan = (S.user && S.user.plan) || 'free';
-      const used = S.jobs.filter(j => (j.status === 'sent' || j.lockedAt) && !companyJob(j)).length;
-      if (!isOwnerAccount() && plan === 'free' && used >= 3 && !companyJob(S.job)) return showPaywall();
+      if (!S.job) return toast('Open a job first');
+      if (!(await canGenerateReport(S.job))) return showPaywall();
       try {
         toast('Building PDF…');
         const blob = await makeReportPdf();
@@ -3275,6 +3679,7 @@
           const teamNote = data.team ? await TEAM.restore(data.team) : null;
 
           await refreshJobs();
+          await loadUsageLedger();
           await refreshEquipment();
           const all = await DB.all('photos');
           all.forEach(p => { if (!p.url && p.blob) p.url = URL.createObjectURL(p.blob); });
@@ -3294,16 +3699,26 @@
 
     async wipe() {
       if (!confirm('Delete every job, photo and setting on this device? This cannot be undone.')) return;
+      const ledger = await loadUsageLedger();
       for (const s of ['jobs', 'photos', 'customers', 'equipment', 'meta', 'outbox']) {
         const all = await DB.all(s);
-        for (const r of all) await DB.del(s, r.id);
+        for (const r of all) {
+          // The device-wide free-report ledger is intentionally outside the
+          // wipe boundary so a fresh profile cannot reclaim used free slots.
+          if (s === 'meta' && r.id === 'usageLedger') continue;
+          await DB.del(s, r.id);
+        }
       }
+      await persistUsageLedger(ledger);
       S.job = null; S.jobs = []; S.user = null; S.equipment = [];
-      go('boot'); toast('Everything deleted');
+      S.accounts = []; S.team = null; S.photos = {}; S.draftProfile = null;
+      S.onboardMode = 'individual';
+      go('boot'); toast('Everything deleted', 'Your free report usage stays on this device');
     },
 
     async loadDemo() {
       const j = await newJob();
+      j.isDemo = true;
       j.trade = 'solar';
       j.jobType = 'Inverter fault diagnosis';
       j.customer = { name: 'Mr. Adewale Ade', phone: '0803 000 0000', address: '14 Adeyemi St, Okitipupa' };
@@ -3381,6 +3796,30 @@
       toast('Stamp logo removed');
     },
 
+    async createWorkerLogin() {
+      const field = $('workerLoginName');
+      const name = field ? field.value.trim() : '';
+      const r = await TEAM.createWorkerLogin({ name: name });
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      render();
+      toast('Worker login created', r.worker.code + ' · send the login file to your worker');
+    },
+
+    async sendWorkerLogin(code) {
+      const file = TEAM.workerLoginFile(code);
+      if (!file) return toast('Worker login is no longer available', 'Create a new code for this worker');
+      return ACT.shareWorkerFile(file, 'rehoteq-worker-login-' + file.code + '.json',
+        'Worker login ready — code ' + file.code);
+    },
+
+    async shareWorkerFile(file, filename, sentMessage) {
+      if (!file || file.format !== TEAM_FORMAT || file.kind !== 'worker-login') {
+        return toast('Worker login file is invalid');
+      }
+      return shareTeamFile(file, filename || ('rehoteq-worker-login-' + file.code + '.json'),
+        sentMessage || ('Worker login ready — code ' + file.code));
+    },
+
     async makeInvite() {
       const r = await TEAM.makeInvite();
       if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
@@ -3417,6 +3856,17 @@
         }
         if (!data || data.format !== TEAM_FORMAT || !data.kind) {
           const e = teamErr('notteam'); return toast(e[0], e[1]);
+        }
+        if (data.kind === 'worker-login') {
+          const imported = await TEAM.importWorkerLogin(data);
+          if (!imported.ok) { const e = teamErr(imported.error); return toast(e[0], e[1]); }
+          S.workerCode = imported.code;
+          if (!S.user) {
+            S.accounts = await loadAccounts();
+            S.onboardMode = 'login';
+            go('boot');
+          } else { render(); }
+          return toast('Worker login file imported', 'Enter ' + imported.code + ' under Log in / Worker');
         }
         await TEAM.load();
         let r;
@@ -3568,9 +4018,10 @@
       window.open(CONFIG.waUrl(msg), '_blank');
     },
 
-    // The test suite's eyes: without this it can tap a button but cannot
-    // prove the tap landed on the right screen.
-    _view() { return S.view; }
+    // Test seams: these let the suite verify real screen transitions and
+    // report guards without copying the app's private state machine.
+    _view() { return S.view; },
+    _setJobForTest(job) { S.job = job ? cloneRecord(job) : null; }
   };
   window.ACT = ACT;
 
@@ -3644,11 +4095,14 @@
   /* ---------------- boot ---------------------------------------------- */
   async function boot() {
     S.user = await DB.getMeta('user');
+    S.accounts = (await DB.getMeta('accounts')) || [];
     S.lastBackup = await DB.getMeta('lastBackup');
     if (S.user && S.user.trade) S.trade = S.user.trade;
     await refreshJobs();
     await refreshEquipment();
     await teamLoad();
+    await loadUsageLedger();
+    if (S.user) await saveAccount(S.user);
     // hydrate photo urls for any job we render. A photo restored from a
     // backup may have no blob; createObjectURL would throw and leave the
     // technician with a white screen he cannot clear from the UI.

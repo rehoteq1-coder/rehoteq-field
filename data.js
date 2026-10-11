@@ -9,10 +9,16 @@
   'use strict';
 
   const TRADES = [
-    { id: 'electrical', icon: 'zap', name: 'Electrical', desc: 'Wiring · inverter · DB' },
-    { id: 'solar',      icon: 'solar-panel', name: 'Solar',      desc: 'PV · battery · hybrid' },
-    { id: 'cctv',       icon: 'cctv', name: 'CCTV',       desc: 'Install · service · NVR' },
-    { id: 'networking', icon: 'router', name: 'Networking', desc: 'LAN · WiFi · fibre' }
+    { id: 'electrical',  icon: 'zap',         name: 'Electrical',       desc: 'Wiring · inverter · DB' },
+    { id: 'solar',       icon: 'solar-panel', name: 'Solar',            desc: 'PV · battery · hybrid' },
+    { id: 'cctv',        icon: 'cctv',        name: 'CCTV',             desc: 'Install · service · NVR' },
+    { id: 'networking',  icon: 'router',      name: 'Networking',      desc: 'LAN · WiFi · fibre' },
+    { id: 'hvac',        icon: 'snowflake',   name: 'HVAC',             desc: 'Air conditioning · ventilation' },
+    { id: 'generator',   icon: 'gauge',       name: 'Generator',        desc: 'Standby power · changeover' },
+    { id: 'plumbing',    icon: 'droplets',    name: 'Plumbing',         desc: 'Water · drainage · pumps' },
+    { id: 'fire_access', icon: 'flame',       name: 'Fire & Access',    desc: 'Fire alarm · access control' },
+    { id: 'smarthome',   icon: 'cpu',         name: 'Smart Home',       desc: 'Automation · controls · IoT' },
+    { id: 'ev',           icon: 'plug-zap',    name: 'EV Charging',      desc: 'EV charger · protection · test' }
   ];
 
   const JOB_TYPES = {
@@ -21,9 +27,21 @@
     solar:      ['Inverter fault diagnosis', 'New solar installation', 'Battery replacement',
                  'Maintenance / service', 'Panel cleaning & inspection'],
     cctv:       ['New CCTV installation', 'CCTV service / repair', 'NVR / DVR fault',
-                 'Camera replacement'],
+                 'Camera replacement', 'CCTV commissioning & handover'],
     networking: ['New network install', 'WiFi dead zones', 'Fibre termination',
-                 'Router / switch fault']
+                 'Router / switch fault', 'Structured cabling & certification'],
+    hvac:       ['AC fault diagnosis', 'Split AC installation', 'HVAC preventive maintenance',
+                 'Refrigerant leak inspection', 'Ventilation / exhaust fan service'],
+    generator:  ['Generator fault diagnosis', 'Generator installation', 'Generator servicing',
+                 'ATS / changeover commissioning', 'Load bank test'],
+    plumbing:   ['Leak repair', 'Water pump installation', 'Drain blockage / clearing',
+                 'Water heater service', 'Pipework installation'],
+    fire_access:['Fire alarm / sprinkler maintenance', 'Fire alarm fault diagnosis', 'Access control installation',
+                 'Emergency lighting test', 'Door entry / intercom repair'],
+    smarthome:  ['Smart home commissioning', 'Lighting automation fault', 'Smart thermostat installation',
+                 'Home network / hub setup', 'Sensor and scene configuration'],
+    ev:         ['EV charger installation', 'EV charger fault diagnosis', 'EV charger inspection & test',
+                 'Load management setup', 'Charging point replacement']
   };
 
   /* -------------------------------------------------------------------
@@ -184,6 +202,90 @@
         { l: 'Re-survey every dead zone after changes', photo: true, critical: true },
         { l: 'Throughput test at the furthest point', critical: true },
         { l: 'Customer handover and sign-off', critical: true }
+      ]
+    },
+    'hvac|AC fault diagnosis': {
+      name: 'AC fault diagnosis', version: 1, items: [
+        { l: 'Confirm reported symptoms, operating mode and set point' },
+        { l: 'Isolate the indoor and outdoor units and prove dead before opening', critical: true },
+        { l: 'Allow capacitors to discharge and verify before touching terminals', critical: true },
+        { l: 'Record model, serial number and displayed fault code', photo: true },
+        { l: 'Inspect filters, coil cleanliness, airflow and fan operation' },
+        { l: 'Inspect condensate tray and drain for blockage or overflow' },
+        { l: 'Check terminals, cable condition and protective device rating', photo: true },
+        { l: 'Record supply voltage and return / supply air temperatures' },
+        { l: 'Do not vent refrigerant; refer sealed-system work to a qualified handler', critical: true },
+        { l: 'Restore guards, run a monitored test and explain findings to customer', critical: true }
+      ]
+    },
+    'generator|Generator fault diagnosis': {
+      name: 'Generator fault diagnosis', version: 1, items: [
+        { l: 'Confirm symptoms, alarm history and when the fault occurs' },
+        { l: 'Verify the set is outdoors with exhaust clear of doors and windows', critical: true },
+        { l: 'Isolate generator and utility sources before opening the ATS or terminals', critical: true },
+        { l: 'Prove dead and prevent any possibility of back-feed', critical: true },
+        { l: 'Record engine, alternator and controller model / serial', photo: true },
+        { l: 'Check fuel, oil, coolant and visible leaks with the set stopped' },
+        { l: 'Inspect battery connections and charger with insulated tools' },
+        { l: 'Record output voltage and frequency only with suitable rated instruments' },
+        { l: 'Run a controlled load test and confirm alarms clear', critical: true },
+        { l: 'Return ATS to the agreed mode and hand over the test record', critical: true }
+      ]
+    },
+    'plumbing|Leak repair': {
+      name: 'Leak repair', version: 1, items: [
+        { l: 'Confirm leak location, source and any water damage' },
+        { l: 'Isolate the water supply and relieve pressure before cutting pipe', critical: true },
+        { l: 'Isolate nearby electrical equipment if there is any water ingress', critical: true },
+        { l: 'Cool and depressurise hot-water pipework before opening it', critical: true },
+        { l: 'Photograph the pipe, fittings and leak before repair', photo: true },
+        { l: 'Identify pipe material, size and compatible joining method' },
+        { l: 'Replace damaged section and support pipework correctly' },
+        { l: 'Restore supply gradually and inspect every joint under pressure', critical: true },
+        { l: 'Check adjacent surfaces and electrical areas are dry and safe', critical: true },
+        { l: 'Explain repair, isolation point and any follow-up to customer', critical: true }
+      ]
+    },
+    'fire_access|Fire alarm / sprinkler maintenance': {
+      name: 'Fire alarm / sprinkler maintenance', version: 1, items: [
+        { l: 'Notify site contact and monitoring station before testing', critical: true },
+        { l: 'Record the impairment permit, affected zones and fire-watch plan', critical: true },
+        { l: 'Keep life-safety systems enabled except for the permitted test window', critical: true },
+        { l: 'Inspect panel status, power supplies, batteries and fault log', photo: true },
+        { l: 'Test devices and circuits using the manufacturer procedure' },
+        { l: 'Inspect accessible sprinkler valves, gauges and tamper switches' },
+        { l: 'Record every failed device, zone and corrective action', photo: true },
+        { l: 'Restore all bypasses, valves and zones to normal service', critical: true },
+        { l: 'Confirm normal status at panel and monitoring station', critical: true },
+        { l: 'Close the impairment permit and hand over the test log', critical: true }
+      ]
+    },
+    'smarthome|Smart home commissioning': {
+      name: 'Smart home commissioning', version: 1, items: [
+        { l: 'Confirm device list, scenes and acceptance criteria with customer' },
+        { l: 'Isolate mains circuits and prove dead before wiring control modules', critical: true },
+        { l: 'Keep extra-low-voltage wiring separated from mains as required' },
+        { l: 'Record hub, controller and device model / firmware versions', photo: true },
+        { l: 'Label circuits, relays and control points clearly' },
+        { l: 'Pair devices and verify signal strength at installed locations' },
+        { l: 'Test each scene, sensor trigger and manual override' },
+        { l: 'Set up customer-owned accounts and hand over credentials securely', critical: true },
+        { l: 'Confirm core lighting / access functions work without cloud service' },
+        { l: 'Demonstrate operation and obtain customer sign-off', critical: true }
+      ]
+    },
+    'ev|EV charger installation': {
+      name: 'EV charger installation', version: 1, items: [
+        { l: 'Confirm charger rating, vehicle connector and installation location' },
+        { l: 'Complete supply capacity and route survey before installation', critical: true },
+        { l: 'Isolate, lock off and prove dead at the point of connection', critical: true },
+        { l: 'Verify protective device and DC residual-current protection against OEM / local rules', critical: true },
+        { l: 'Check earthing arrangement and bonding suitability', critical: true },
+        { l: 'Mount charger securely and protect the cable route from damage' },
+        { l: 'Record charger model, serial number and configuration', photo: true },
+        { l: 'Test polarity, protective conductor and required RCD operation', critical: true },
+        { l: 'Commission with manufacturer procedure and a controlled charge test', critical: true },
+        { l: 'Label isolator and hand over emergency shutdown instructions', critical: true }
       ]
     }
   };
@@ -471,21 +573,172 @@
         { t: 'Residual magnetism lost in the alternator', p: 'HIGH', d: 'Common after long storage. Needs field flashing — a five-minute job that looks like a dead generator.' },
         { t: 'AVR faulty', p: 'HIGH', d: 'Automatic voltage regulator failure gives zero or wildly unstable output.' },
         { t: 'Circuit breaker tripped on the set', p: 'MED', d: 'Check the output breaker on the generator itself, not just the changeover.' },
-        { t: 'Engine speed too low', p: 'MED', d: 'Wrong frequency means wrong voltage. Check the governor and theHz reading.' },
+        { t: 'Engine speed too low', p: 'MED', d: 'Wrong frequency means wrong voltage. Check the governor and the Hz reading.' },
         { t: 'Brushes worn (on brushed sets)', p: 'LOW', d: 'Inspect and replace if below the wear mark.' }
       ],
       checks: [
         'Check the output breaker and any RCD on the set.',
-        'Measure output voltage and frequency — 50 Hz and roughly 230 V phase-to-neutral.',
-        'If voltage is zero but the engine runs at speed, flash the field (follow the OEM procedure exactly).',
-        'If voltage is present but unstable or wildly high, suspect the AVR.',
-        'Inspect brushes and slip rings where applicable.',
-        'Test under load, not just open circuit.'
+        'Measure output voltage and frequency — confirm the rating plate and local supply standard.',
+        'If voltage is zero but the engine runs at speed, stop and follow the OEM excitation test procedure.',
+        'If voltage is unstable or unusually high, stop the set and inspect the AVR circuit.',
+        'Inspect brushes and slip rings only after isolation and proving dead.',
+        'Test under a controlled load after all covers and guards are restored.'
       ],
-      safety: 'Never run a generator indoors or in an enclosed space — carbon monoxide kills in minutes. Never back-feed the building without a proper changeover switch; you can kill a linesman working on the supply. Isolate before opening the alternator cover.',
+      safety: 'Never run a generator indoors or in an enclosed space — carbon monoxide can kill without warning. Prevent automatic start, isolate generator and utility sources, and prove dead before opening the alternator cover. Never back-feed without an approved changeover system.',
       parts: [
-        { d: 'AVR', price: 35000 },
-        { d: 'Brush set', price: 8000 }
+        { d: 'AVR (confirm model first)', price: 35000 },
+        { d: 'Brush set (where fitted)', price: 8000 }
+      ],
+      source: 'REHOTEQ field data'
+    },
+    {
+      id: 'hvac-nocool', trade: 'hvac', cat: 'Split air conditioner', symptom: 'Air conditioner runs but room does not cool',
+      code: '', freq: 'high',
+      causes: [
+        { t: 'Restricted filter or dirty indoor coil', p: 'HIGH', d: 'Reduced airflow is a common cause and can make the unit appear undercharged.' },
+        { t: 'Incorrect mode or set point', p: 'HIGH', d: 'Confirm cooling mode, fan setting, doors and windows before opening equipment.' },
+        { t: 'Outdoor fan or condenser airflow problem', p: 'MED', d: 'Blocked discharge or a stopped fan can cause poor cooling and protective shutdown.' },
+        { t: 'Electrical supply or capacitor fault', p: 'MED', d: 'A weak supply or failed component may prevent the compressor starting.' },
+        { t: 'Refrigerant circuit leak or restriction', p: 'MED', d: 'Requires qualified leak diagnosis and refrigerant recovery; do not top up by guesswork.' }
+      ],
+      checks: [
+        'Confirm cooling mode, set point and indoor fan setting with the customer.',
+        'Inspect and clean the filter using the manufacturer instructions; confirm airflow improves.',
+        'Check that the outdoor unit has clear airflow and that the fan runs when called.',
+        'Record model, displayed fault code, supply readings and return / supply air temperatures.',
+        'Isolate and prove dead before opening electrical covers; allow capacitors to discharge.',
+        'If refrigerant work is indicated, stop and use a qualified handler with recovery equipment.'
+      ],
+      safety: 'ISOLATE AC power at the correct disconnect, lock off and prove dead before opening either unit. Capacitors can retain a dangerous charge after isolation. Do not release refrigerant or open the sealed system unless qualified and equipped for recovery.',
+      parts: [
+        { d: 'Replacement filter (confirm model)', price: 8500 },
+        { d: 'Run capacitor (confirm rating)', price: 12000 }
+      ],
+      source: 'REHOTEQ field data'
+    },
+    {
+      id: 'gen-nostart', trade: 'generator', cat: 'Standby generator', symptom: 'Generator cranks but does not start',
+      code: '', freq: 'high',
+      causes: [
+        { t: 'Fuel supply closed, low or contaminated', p: 'HIGH', d: 'Check the gauge, isolation valve and visible fuel condition without opening a hot fuel system.' },
+        { t: 'Battery weak or connections corroded', p: 'HIGH', d: 'Cranking voltage may collapse even when the starter turns.' },
+        { t: 'Emergency stop or controller inhibit active', p: 'MED', d: 'A latched stop, alarm or start-permissive can prevent ignition.' },
+        { t: 'Air filter or intake restricted', p: 'MED', d: 'A blocked intake can prevent reliable starting under load or in dusty conditions.' },
+        { t: 'Starter, solenoid or engine fault', p: 'LOW', d: 'Mechanical or control faults need model-specific diagnosis.' }
+      ],
+      checks: [
+        'Confirm the site is outdoors and exhaust cannot enter occupied spaces; check for a fuel or gas smell first.',
+        'Record controller alarms and check the emergency-stop circuit before resetting anything.',
+        'Check fuel level and valve position using the operator procedure; do not loosen fuel lines.',
+        'Inspect battery terminals and measure battery voltage with a suitable meter.',
+        'Check the air filter and visible intake path with the engine stopped.',
+        'Prevent automatic start and isolate before any internal inspection; refer unresolved faults to the OEM.'
+      ],
+      safety: 'Run generators outdoors only: carbon monoxide is lethal and may not be smelled. Disable automatic start, isolate the ATS and utility supply before servicing, and keep clear of hot, moving and fuel-system parts. Never attempt to back-feed a building.',
+      parts: [
+        { d: 'Starting battery (confirm specification)', price: 65000 },
+        { d: 'Air filter (confirm model)', price: 12000 }
+      ],
+      source: 'REHOTEQ field data'
+    },
+    {
+      id: 'plumb-leak', trade: 'plumbing', cat: 'Domestic water pipework', symptom: 'Visible leak from a water pipe or fitting',
+      code: '', freq: 'high',
+      causes: [
+        { t: 'Loose, cracked or incompatible fitting', p: 'HIGH', d: 'Movement, poor support or a mismatched joint can cause a persistent drip.' },
+        { t: 'Corroded or split pipe section', p: 'HIGH', d: 'Age, water quality or external impact may have weakened the pipe wall.' },
+        { t: 'Excess pressure or pressure surge', p: 'MED', d: 'A pressure problem can make more than one joint leak; inspect before replacing fittings.' },
+        { t: 'Failed appliance hose or seal', p: 'MED', d: 'Check the appliance connection and washer before opening a wall or floor.' },
+        { t: 'Condensation mistaken for a leak', p: 'LOW', d: 'Dry the surface and observe where the first moisture returns.' }
+      ],
+      checks: [
+        'Identify the water source and protect people, property and nearby electrical equipment.',
+        'Close the correct isolation valve and relieve pressure before loosening any joint.',
+        'For hot water, allow the pipe or cylinder to cool and depressurise first.',
+        'Dry the area and observe the exact point where water reappears.',
+        'Replace damaged parts with compatible material and support the pipe correctly.',
+        'Restore water gradually, inspect under pressure, and confirm the adjacent area is dry.'
+      ],
+      safety: 'Isolate the water supply and depressurise before cutting or loosening pipework. Hot-water systems can scald; let them cool first. If water is near electrical equipment, isolate the electrical supply safely and keep clear until the area is dry and inspected.',
+      parts: [
+        { d: 'Compatible pipe coupling', price: 2500 },
+        { d: 'Thread seal tape', price: 800 },
+        { d: 'Pipe section (size and material dependent)', price: 0 }
+      ],
+      source: 'REHOTEQ field data'
+    },
+    {
+      id: 'fire-zonefault', trade: 'fire_access', cat: 'Fire alarm control panel', symptom: 'Fire alarm panel shows a zone or device fault',
+      code: '', freq: 'med',
+      causes: [
+        { t: 'Open circuit or damaged field cable', p: 'HIGH', d: 'A loose terminal, cable damage or moisture can interrupt a zone or loop.' },
+        { t: 'Device removed, contaminated or failed', p: 'MED', d: 'A detector head may be missing, dirty or at end of life.' },
+        { t: 'Low battery or charger supply fault', p: 'MED', d: 'A mains or battery fault may appear alongside device warnings.' },
+        { t: 'Incorrect isolator state after recent work', p: 'MED', d: 'A zone or loop isolator may have been left disabled.' },
+        { t: 'Panel configuration or addressing issue', p: 'LOW', d: 'Addressable systems require the manufacturer procedure and correct device data.' }
+      ],
+      checks: [
+        'Notify the responsible site contact and monitoring station before any test or isolation.',
+        'Record the exact panel text, zone, device address and time of the event.',
+        'Check visible indicators, supply status and battery condition without defeating protection.',
+        'Inspect accessible cable and device connections under the site impairment permit.',
+        'Test devices using the manufacturer method and record every result.',
+        'Restore all zones, remove test mode and confirm normal status at the panel and monitoring station.'
+      ],
+      safety: 'A fire alarm is life-safety equipment. Notify the site responsible person and monitoring station before testing, obtain an impairment permit, and maintain the agreed fire watch. Never leave a zone bypassed: restore and verify normal status before leaving.',
+      parts: [
+        { d: 'Compatible detector head (confirm model)', price: 18000 },
+        { d: 'Panel standby battery (confirm rating)', price: 22000 }
+      ],
+      source: 'REHOTEQ field data'
+    },
+    {
+      id: 'smart-offline', trade: 'smarthome', cat: 'Smart home controls', symptom: 'Smart switch or sensor is offline in the home app',
+      code: '', freq: 'high',
+      causes: [
+        { t: 'WiFi coverage or band mismatch', p: 'HIGH', d: 'Many devices need a stable 2.4 GHz connection and fail after router changes.' },
+        { t: 'Device lost pairing after a power interruption', p: 'MED', d: 'A controlled re-pair may be needed after confirming local operation.' },
+        { t: 'Hub or cloud service unavailable', p: 'MED', d: 'Check whether the problem affects one device or the entire platform.' },
+        { t: 'Low-voltage supply or wiring fault', p: 'MED', d: 'Measure only at documented test points and isolate mains circuits before opening.' },
+        { t: 'Firmware or account permissions changed', p: 'LOW', d: 'Customer account, ownership or an update may have changed access.' }
+      ],
+      checks: [
+        'Ask whether manual control still works and whether the fault affects one device or the whole home.',
+        'Check hub power, router status and 2.4 GHz coverage at the installed device.',
+        'Check device and hub status lights against the manufacturer guide.',
+        'Confirm customer-owned app account and permissions; do not collect or store passwords.',
+        'Isolate and prove dead before opening mains-connected devices; keep SELV separate from mains.',
+        'Re-pair only with customer approval, then test automation and manual override.'
+      ],
+      safety: 'Mains-connected smart modules can expose lethal voltage. Isolate, lock off and prove dead before opening; keep extra-low-voltage and mains wiring segregated. Never ask the customer to share a password: let them enter credentials on their own device.',
+      parts: [
+        { d: 'Compatible smart relay (confirm load rating)', price: 18000 },
+        { d: 'Wireless hub (platform dependent)', price: 45000 }
+      ],
+      source: 'REHOTEQ field data'
+    },
+    {
+      id: 'ev-nocharge', trade: 'ev', cat: 'AC EV charging point', symptom: 'Vehicle is plugged in but the charger will not start charging',
+      code: '', freq: 'med',
+      causes: [
+        { t: 'Vehicle schedule or charge limit is active', p: 'HIGH', d: 'A vehicle timer or battery limit can prevent charging while the point appears ready.' },
+        { t: 'Connector not fully latched or cable damaged', p: 'MED', d: 'Check the connector, pilot indication and visible cable condition.' },
+        { t: 'Protective device has tripped', p: 'MED', d: 'A trip may indicate a real fault; never repeatedly reset without diagnosis.' },
+        { t: 'Supply capacity or load management limit reached', p: 'MED', d: 'Dynamic load control may pause the point when the building demand is high.' },
+        { t: 'Charger communication or firmware fault', p: 'LOW', d: 'Record the charger code and use the OEM diagnostic process.' }
+      ],
+      checks: [
+        'Check the vehicle charge schedule, requested charge limit and dashboard message with the owner.',
+        'Inspect the connector and cable for visible damage; stop using damaged equipment.',
+        'Record charger LEDs, error code, model and serial number.',
+        'Check the protective device status; do not repeatedly reset a device that trips again.',
+        'Review supply and load-management status using the approved charger interface.',
+        'A qualified EV electrician should verify earthing and protective-device operation before returning to service.'
+      ],
+      safety: 'EV circuits can carry sustained high current and may use residual-current protection with DC detection. Isolate, lock off and prove dead before electrical testing; verify protection to the charger manufacturer and local code. Do not repeatedly reset a tripping charger.',
+      parts: [
+        { d: 'Type 2 tethered cable (confirm charger model)', price: 65000 },
+        { d: 'Manufacturer-approved RCD / protection device', price: 0 }
       ],
       source: 'REHOTEQ field data'
     }

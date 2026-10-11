@@ -1,11 +1,12 @@
-# REHOTEQ Field — V1
+# REHOTEQ Field — v1.4.1
 
 **The field assistant for technicians.** *Diagnose it. Prove it. Get paid.*
 
-V1 deliberately contains **no AI**. The troubleshooting library is curated and
-deterministic: it works offline, costs nothing per query, and cannot give anyone
-a dangerous answer. The AI (V2–V4) gets earned later, on top of the job corpus
-this app collects.
+REHOTEQ Field is an offline-first field app for Engineering & MEP technicians.
+It creates signed, photo-backed service reports and quotations; offers a curated
+troubleshooting library and an online-only, safety-first AI diagnosis; and lets
+Business crews exchange invites, worker logins, assignments and updates as files.
+Jobs stay on the device unless the user explicitly shares or backs them up.
 
 ---
 
@@ -35,20 +36,20 @@ That's the whole product in one tap.
 
 | File | Lines | What it does |
 |---|---|---|
-| `index.html` | 45 | App shell, manifest, service-worker registration |
-| `app.js` | 1746 | State, 15 views, all actions |
-| `icons.js` | 117 | Generated inline SVG icon set (Lucide, ISC) |
-| `data.js` | 506 | **This file is the product** — 11 checklists, 12 troubleshooting guides |
-| `pdf.js` | 240 | PDF writer from scratch — no library, works offline |
-| `report.js` | 376 | Service report + quotation layouts |
-| `qr.js` | 314 | QR encoder (byte mode, ECC-M) for solar passports |
+| `index.html` | 48 | App shell, manifest, service-worker registration |
+| `app.js` | 4199 | State, views, report quota, saved accounts, team flows and actions |
+| `icons.js` | 130 | Generated inline SVG icon set (Lucide, ISC) |
+| `data.js` | 765 | **This file is the product** — 10 trades, 50 job types, 16 checklists, 18 guides |
+| `pdf.js` | 340 | PDF writer from scratch — no runtime library, works offline |
+| `report.js` | 490 | Service report + quotation layouts |
+| `qr.js` | 314 | QR encoder (byte mode, ECC-M) for equipment passports |
 | `db.js` | 184 | IndexedDB layer — the seam where Supabase plugs in |
 | `FIREBASE_PLAN.md` | — | How accounts, real Pro enforcement, the 14-day trial and sub-users get built — and the one rule that keeps the app offline-first |
 | `MARKET_REVIEW.md` | — | Competitor pricing, where we win and lose, and why we should lead with *proof* rather than scheduling |
 | `WHERE_YOUR_DATA_LIVES.md` | — | **Read this before field use.** Where jobs are stored, how you lose them, and which backup button actually counts |
 | `sw.js` | 42 | Offline caching |
 
-**No dependencies. No build step. No CDN.** Every line runs on the device.
+**No runtime dependencies, build step, or CDN.** The app shell runs on-device; dev dependencies are used only by `npm test` and the Lucide icon generator.
 
 ---
 
@@ -70,16 +71,17 @@ That's the whole product in one tap.
 - ✅ Service report → **real PDF** → WhatsApp share
 - ✅ Quotation → line items, labour, VAT → **real PDF**
 - ✅ Solar passport → **real QR code**, live warranty countdown, service history
-- ✅ Free/Pro paywall at the moment of value (after the report is built)
+- ✅ **Free report quota** — three personal reports; checked before both locking and PDF generation, persisted in IndexedDB + localStorage, and retained across device reset and fresh signup. Demo and company reports do not consume a personal slot.
+- ✅ **Logout and saved-device login** — Settings logout, a local account vault and a dedicated Log in / Worker onboarding tab
 - ✅ Offline: service worker caches the shell, IndexedDB holds all data
 - ✅ **Backup and restore** — full export (jobs + photos), text-only export,
   and restore onto any device. Merges; never blind-overwrites.
 - ✅ Backup nudge when real work is sitting unbacked-up on the phone
 - ✅ **Crews (Business, offline edition)** — company stamp on every crew PDF,
-  invite-code onboarding, job assignment with pinned instructions, and a
-  supervisor dashboard with monitoring. All of it travels as files over
-  WhatsApp; 5 seats included, extra seats self-declared after payment and
-  reconciled at sync
+  invite-code onboarding, worker login files with `RQ-XXXX-XXXX` codes (up to
+  five worker slots), job assignment with pinned instructions, and a supervisor
+  dashboard. Transfers travel as files over WhatsApp; 5 seats are included,
+  extra seats are self-declared after payment and reconciled at sync
 - ✅ **In-app AI diagnosis (V3, grounded & online-only)** — unlocks the
   Diagnose screen (`V.diagnose`), retrieves against the curated REHOTEQ
   library, calls Groq via `aiProxy` with a strict JSON card schema, prepends
@@ -91,9 +93,13 @@ That's the whole product in one tap.
   customer output preview card, and dedicated onboarding modes for
   **Individual Technicians** and **Companies / Crews** (automatically
   initializing the company stamp & crew workspace)
+- ✅ **Engineering & MEP catalog** — electrical, solar, CCTV, networking,
+  HVAC, generator, plumbing, fire/access, smart-home and EV, with 50 job types,
+  16 checklists and 18 curated troubleshooting guides
 - ✅ **Owner all-plans entitlement (`rehoteq@gmail.com`)** — permanent owner
   access across Free, Pro, and Business both in the PWA and in
-  `createAccount` Cloud Function, with a 1-tap plan switcher in Settings
+  `createAccount` Cloud Function; switching the profile email away removes the
+  local owner flag and resets the plan to Free
 
 ---
 
@@ -135,16 +141,13 @@ npm install
 npm test
 ```
 
-399 automated checks in thirteen suites: a full walkthrough of every screen and
-action, a backup round-trip, a **wiring audit** that scans every button on
-21 screens and fails if any tap would hit undefined code, a **domain guard**
-that fails if any printed link points at a domain we don't own, a team
-suite that runs invite → join → assign → update → dashboard through the real
-functions with two simulated phones, an AI diagnosis suite covering
-`aiProxy`, `DIAG`, out-of-scope refusals, the no-verified-entry honesty gate,
-human-in-the-loop cause confirmation, and secret-key protections, and a
-landing & owner-entitlement suite verifying Individual vs Company onboarding
-and `rehoteq@gmail.com` access to all plans. Run it after any change.
+511 automated checks across fourteen suites: a walkthrough of the screens and
+actions, a backup round-trip, a **wiring audit** that scans inline handlers,
+a **domain guard**, catalog and icon parity checks, two simulated phones for
+team invite/join/assignment/update flows, worker-code login and acceptance,
+AI diagnosis safety/grounding/human-confirmation checks, and saved-account,
+owner-switch, Free-quota and wipe-persistence coverage. Run `npm test` after
+every change.
 
 Two things are harness limits, not app bugs: jsdom has no canvas backend and
 never decodes images, and `fake-indexeddb` destroys `Blob` instances on clone —
@@ -155,8 +158,9 @@ helpers are unit-tested directly to cover that gap.
 
 1. **Run 20 real REHOTEQ jobs through this app.** Not paper — the app. Every
    gap you hit is a bug worth more than a week of theorising.
-2. **Write the troubleshooting library up to ~60 entries.** `data.js` ships 12.
-   Dictate the rest from jobs you've actually done. This is V1's "AI".
+2. **Grow the troubleshooting library toward ~60 entries.** `data.js` ships
+   18 verified guides; add the rest from real jobs, then keep AI diagnosis
+   grounded in that library.
 3. **When 100 job cards exist**, stand up Supabase and swap the bodies of the
    functions in `db.js`. Nothing else in the app touches storage directly, so
    that's the only file that changes.
@@ -165,13 +169,28 @@ helpers are unit-tested directly to cover that gap.
 
 ## Not built on purpose
 
-- ❌ AI diagnosis (V3) — no corpus yet
 - ❌ Supabase sync — IndexedDB only; the outbox queue is already recording intent
 - ❌ iOS — Android is the market
 - ❌ Payments in-app — send the quotation, let them transfer
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.4.1** — **A larger Engineering & MEP catalog, durable Free quota, and Business worker logins.**
+
+- Expanded the product catalog to 10 trades, 50 job types, 16 checklists and
+  18 troubleshooting guides; generated Lucide trade icons and added mandatory
+  per-trade safety preambles to the app, Cloud Function and guide-draft tool.
+- Enforced three personal Free reports through both report completion and PDF
+  generation. The usage ledger is stored in IndexedDB and `localStorage`,
+  survives device reset/fresh signup, and excludes demo/company work.
+- Added saved-device logout/login and the Log in / Worker landing tab.
+  Business company owners can issue up to five `RQ-XXXX-XXXX` worker login
+  files; workers can import the file, log in with the code and return an
+  acceptance file to the owner.
+- Switching away from `rehoteq@gmail.com` clears `ownerAccess` and resets the
+  active profile to Free. Service-worker cache is bumped to v22.
+- Verification: **511 automated checks across fourteen suites pass**.
 
 **v1.4.0** — **In-app AI fault diagnosis (V3): grounded in the curated library, safety block first, cards out, human-confirmed.**
 
