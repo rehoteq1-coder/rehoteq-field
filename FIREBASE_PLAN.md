@@ -311,6 +311,25 @@ it is meant to be in the browser — so it is safe to paste.
 Stage 1 shipped. Stages 2–4 are the minimum before you can honestly charge
 anyone.
 
+## Offline team files (v1.3.0) — what stages 5–6 inherit
+
+Teams shipped before the server, travelling as files over WhatsApp. The
+records were shaped to land on Firestore unchanged:
+
+| Offline (today) | Firestore (stages 5–6) |
+|---|---|
+| `company` in meta | `companies/{companyId}` |
+| `teamMembers[]` | `companies/{companyId}/members/{uid}` |
+| invite file + `teamInvites[]` | invite-code lookup, then a member write |
+| assignment file | `jobs/{jobId}` with `companyId`, `ownerId`, `assignedTo` |
+| update file | job update by owner or assignee (rules already allow both) |
+| `team.seats` + `team.seats.claimed` outbox entries | `plan` + seat count, reconciled server-side |
+
+Two behaviours change at sync and must be announced in-app when they do:
+removal takes effect immediately on the technician's phone (today it waits
+for the removal notice), and extra-seat claims get verified instead of
+trusted. Until then the screens say what is true today.
+
 ---
 
 ## What this does not change

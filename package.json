@@ -1,6 +1,6 @@
 {
   "name": "rehoteq-field",
-  "version": "1.0.4",
+  "version": "1.3.0",
   "private": true,
   "description": "REHOTEQ Field — the field assistant for technicians. Diagnose it. Prove it. Get paid.",
   "scripts": {

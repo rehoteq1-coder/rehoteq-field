@@ -499,7 +499,11 @@
     // yearPrice is what a year actually costs. Everything the app says about
     // the annual saving is worked out from it, so the two cannot drift.
     pro:      { name: 'Pro',      reports: -1,   quotes: -1, price: 3000, label: '₦3,000/mo', yearPrice: 30000 },
-    business: { name: 'Business', reports: -1,   quotes: -1, price: 15000, label: '₦15,000/mo' }
+    // seats is how many technicians a Business subscription covers; extraSeat
+    // is the monthly price of each seat beyond that (spec: ₦2,500/mo). The
+    // app reads both from here so the seat screen can never disagree with
+    // the price list — the same rule that killed the hardcoded ₦4,000.
+    business: { name: 'Business', reports: -1,   quotes: -1, price: 15000, label: '₦15,000/mo', seats: 5, extraSeat: 2500 }
   };
 
   global.DATA = { TRADES, JOB_TYPES, CHECKLISTS, LIBRARY, PLANS };
