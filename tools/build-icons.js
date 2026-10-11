@@ -36,7 +36,7 @@ const NEEDED = [
   // navigation
   'house', 'clipboard-list', 'wrench', 'search', 'settings-2', 'log-in', 'log-out',
   // trades
-  'zap', 'cctv', 'router',
+  'zap', 'cctv', 'router', 'snowflake', 'gauge', 'droplets', 'flame', 'cpu', 'plug-zap',
   // job flow
   'camera', 'mic', 'map-pin', 'pen-tool', 'list-checks', 'check', 'x',
   'plus', 'chevron-left', 'arrow-right', 'qr-code', 'file-text',

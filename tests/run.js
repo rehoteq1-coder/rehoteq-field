@@ -130,9 +130,14 @@ async function suiteSurface(w) {
   ok(typeof w.toast !== 'function',
     'bare global `toast` is the <div>, not a function (so handlers must use ACT.toast)');
 
-  eq(w.DATA.TRADES.length, 4, 'four trades are defined');
-  ok(w.DATA.LIBRARY.length >= 12, 'troubleshooting library has at least 12 guides (' + w.DATA.LIBRARY.length + ')');
-  ok(Object.keys(w.DATA.CHECKLISTS).length >= 10, 'at least 10 checklists (' + Object.keys(w.DATA.CHECKLISTS).length + ')');
+  eq(w.DATA.TRADES.length, 10, 'all 10 Engineering & MEP trades are defined');
+  eq(w.DATA.TRADES.map(t => t.id).join(','),
+    'electrical,solar,cctv,networking,hvac,generator,plumbing,fire_access,smarthome,ev',
+    'the trade IDs match the v1.4.1 Engineering & MEP catalog');
+  eq(Object.values(w.DATA.JOB_TYPES).flat().length, 50, 'the job-type catalog has exactly 50 entries');
+  eq(Object.keys(w.DATA.CHECKLISTS).length, 16, 'the checklist catalog has exactly 16 entries');
+  eq(w.DATA.LIBRARY.length, 18, 'the troubleshooting library has exactly 18 guides');
+  eq(require(path.join(ROOT, 'package.json')).version, '1.4.1', 'package metadata is version 1.4.1');
 }
 
 /* =====================================================================
@@ -154,6 +159,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
+  ok(/const CACHE = 'rehoteq-field-v22'/.test(swSrc),
+    'the service-worker cache is bumped to v22 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -183,6 +190,11 @@ async function suiteIcons(w) {
   for (const t of w.DATA.TRADES) {
     ok(!!w.ICONS[t.icon], 'trade "' + t.id + '" icon "' + t.icon + '" resolves');
   }
+  const iconBuilder = fs.readFileSync(path.join(ROOT, 'tools/build-icons.js'), 'utf8');
+  ['snowflake', 'gauge', 'droplets', 'flame', 'cpu', 'plug-zap'].forEach(name => {
+    ok(iconBuilder.includes("'" + name + "'") && !!w.ICONS[name],
+      'Lucide icon "' + name + '" is listed in the builder and generated bundle');
+  });
 
   // The bug this catches actually shipped: TRADES[].icon became an icon
   // *name* ('solar-panel'), and two views went on printing it as text, so
@@ -931,6 +943,7 @@ async function snapTeam(w) {
     company: await w.DB.getMeta('company'),
     members: await w.DB.getMeta('teamMembers'),
     invites: await w.DB.getMeta('teamInvites'),
+    workerLogins: await w.DB.getMeta('workerLogins'),
     seats: await w.DB.getMeta('teamSeats')
   };
 }
@@ -939,6 +952,7 @@ async function restoreTeam(w, s) {
   await w.DB.setMeta('company', s.company);
   await w.DB.setMeta('teamMembers', s.members);
   await w.DB.setMeta('teamInvites', s.invites);
+  await w.DB.setMeta('workerLogins', s.workerLogins || []);
   await w.DB.setMeta('teamSeats', s.seats);
   w.TEAM._testAs(s.user);
   await w.TEAM.load();
@@ -981,6 +995,10 @@ async function suiteTeam(w) {
   eq(T.role(), 'owner', '...and becomes its owner');
   eq((await w.DB.getMeta('company')).name, 'Oga & Sons', 'the company takes its name from the profile');
   eq((await T.createCompany()).error, 'exists', 'creating a second company is refused');
+  eq((await T.createWorkerLogin({})).error, 'business',
+    'Free-plan company owners cannot create worker logins');
+  await w.ACT.setPlan('business');
+  eq((await w.DB.getMeta('user')).plan, 'business', 'worker login setup uses the Business entitlement');
 
   const prof = T.docProfile();
   eq(prof.company, 'Oga & Sons', 'documents carry the company stamp');
@@ -1030,6 +1048,91 @@ async function suiteTeam(w) {
   const again = await T.applyAcceptance(accept);
   ok(again.ok && again.again === true, 're-importing the acceptance updates instead of doubling');
   eq(T.seats().used, 1, '...and eats no second seat');
+
+  // --- Business worker login generator and worker-device round trip ----
+  w.ACT.go('team');
+  await sleep(40);
+  ok((w.document.body.textContent || '').includes('Worker logins'),
+    'the owner team screen has a Worker logins generator');
+  const workerNameInput = w.document.getElementById('workerLoginName');
+  ok(!!workerNameInput, 'the worker login form exposes an optional worker name');
+  if (workerNameInput) workerNameInput.value = '';
+  await w.ACT.createWorkerLogin();
+  const firstWorker = T.workerLogins()[0];
+  ok(!!firstWorker, 'ACT.createWorkerLogin creates the first Business worker');
+  eq(firstWorker && firstWorker.name, 'Worker 2',
+    'default worker numbering includes the existing technician member');
+  ok(firstWorker && /^RQ-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(firstWorker.code),
+    'worker login receives an RQ-XXXX-XXXX code');
+  const workerFile = firstWorker && T.workerLoginFile(firstWorker.code);
+  eq(workerFile && workerFile.kind, 'worker-login', 'the worker code has a shareable login file');
+  eq(workerFile && workerFile.companyId, companyId, 'the worker login is tied to this company');
+  const remainingWorkers = [];
+  for (let i = 3; i <= 5; i++) remainingWorkers.push(await T.createWorkerLogin({ name: 'Worker ' + i }));
+  ok(remainingWorkers.every(r => r.ok), 'Business can create up to five worker slots in total');
+  eq((await T.createWorkerLogin({})).error, 'full',
+    'a sixth worker login is refused with error full');
+  eq((await T.importWorkerLogin({ format: 'wrong', kind: 'worker-login' })).error,
+    'notworkerfile', 'a malformed worker file is refused');
+
+  let sharedWorkerFile = null;
+  Object.defineProperty(w.navigator, 'canShare', { configurable: true, value: () => true });
+  Object.defineProperty(w.navigator, 'share', { configurable: true, value: async payload => { sharedWorkerFile = payload.files[0]; } });
+  await w.ACT.sendWorkerLogin(firstWorker.code);
+  eq(sharedWorkerFile && sharedWorkerFile.name,
+    'rehoteq-worker-login-' + firstWorker.code + '.json',
+    'ACT.sendWorkerLogin shares the JSON login file');
+  delete w.navigator.canShare;
+  delete w.navigator.share;
+
+  const ownerSnapWorkers = await snapTeam(w);
+  const workerDevice = { name: '', phone: '', trade: 'electrical', plan: 'free', uid: 'WORKER-DEVICE' };
+  T._testAs(workerDevice);
+  const createElement = w.document.createElement.bind(w.document);
+  let workerPicker = null;
+  w.document.createElement = function (tag) {
+    const el = createElement(tag);
+    if (String(tag).toLowerCase() === 'input') {
+      workerPicker = el;
+      el.click = () => {};
+    }
+    return el;
+  };
+  try {
+    w.ACT.receiveFile();
+    Object.defineProperty(workerPicker, 'files', { configurable: true, value: [
+      { text: async () => JSON.stringify(workerFile) }
+    ] });
+    await workerPicker.onchange();
+  } finally { w.document.createElement = createElement; }
+  const importedWorkerFiles = await w.DB.getMeta('workerLoginFiles');
+  ok(Array.isArray(importedWorkerFiles) && importedWorkerFiles.some(x => x.code === firstWorker.code),
+    'ACT.receiveFile imports the owner\u2019s worker login JSON');
+  await w.ACT.workerCodeLogin(firstWorker.code);
+  eq((await w.DB.getMeta('user')).uid, firstWorker.workerId,
+    'ACT.workerCodeLogin restores the worker profile on the new device');
+  eq(T.role(), 'member', 'a worker-code login joins the correct company workspace');
+  const workerAcceptance = T.acceptanceFile();
+  eq(workerAcceptance && workerAcceptance.code, firstWorker.code,
+    'the worker acceptance carries its worker login code');
+  await T.markAcceptanceSent();
+  eq((await w.DB.getMeta('user')).memberOf.sent, true,
+    'sending the worker acceptance is saved to the account vault');
+
+  await restoreTeam(w, ownerSnapWorkers);
+  const forgedAcceptance = JSON.parse(JSON.stringify(workerAcceptance));
+  forgedAcceptance.member.memberId = 'NOT-THE-ISSUED-WORKER';
+  eq((await T.applyAcceptance(forgedAcceptance)).error, 'notyou',
+    'a worker login acceptance cannot claim another worker slot');
+  const workerJoined = await T.applyAcceptance(workerAcceptance);
+  ok(workerJoined.ok, 'the owner accepts the worker login acceptance file');
+  eq(T.seats().used, 2, 'worker acceptance uses one crew seat');
+  eq(T.workerLogins().find(x => x.code === firstWorker.code).status, 'joined',
+    'the worker login is marked joined after acceptance');
+  const workerAgain = await T.applyAcceptance(workerAcceptance);
+  ok(workerAgain.ok && workerAgain.again, 're-importing the worker acceptance does not duplicate a seat');
+  eq(T.seats().used, 2, 'duplicate worker acceptance consumes no additional seat');
+
   eq((await T.applyRemoval({ format: 'x' })).error, 'notremoval', 'a non-removal is refused as such');
 
   // A file from a crew we never heard of goes nowhere.
@@ -1039,14 +1142,14 @@ async function suiteTeam(w) {
 
   // --- seats: five included, extras paid -------------------------------
   const extras = [];
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= 3; i++) {
     const iv = await T.makeInvite();
     const r = await T.applyAcceptance({ format: 'rehoteq-field-team', kind: 'acceptance',
       code: iv.file.code, companyId: companyId,
       member: { memberId: 'EXTRA' + i, name: 'Tech ' + i, phone: '', joinedAt: new Date().toISOString() } });
     extras.push(r.ok);
   }
-  ok(extras.every(Boolean), 'seats two to five fill up');
+  ok(extras.every(Boolean), 'the remaining seats three to five fill up');
   eq(T.seats().used, 5, 'five seats are used');
   const sixthInvite = await T.makeInvite();
   const sixthFile = { format: 'rehoteq-field-team', kind: 'acceptance', code: sixthInvite.file.code,
@@ -1146,6 +1249,9 @@ async function suiteTeam(w) {
     { id: 'JOBLP', ref: 'RF-2026-90004', lockedAt: new Date().toISOString(), status: 'sent' });
   await w.DB.put('jobs', lockedCompany);
   await w.DB.put('jobs', lockedPersonal);
+  await w.ACT.setPlan('free');
+  eq(await w.ACT.canGenerateReport(lockedPersonal), true,
+    'a pre-existing personal report is reconciled into the usage ledger');
   await w.ACT.openJob('JOBLC');
   await sleep(40);
   await w.ACT.saveDraft();
@@ -1181,6 +1287,8 @@ async function suiteTeam(w) {
   const teamText = w.document.body.textContent || '';
   ok(teamText.includes('Oga & Sons'), 'the owner dashboard names the company');
   ok(teamText.includes('seats used'), '...and the seat count');
+  ok(teamText.includes('Worker logins') && teamText.includes(firstWorker.code),
+    'the owner dashboard lists created worker codes and share controls');
   w.ACT.go('settings');
   await sleep(60);
   const openBtn = [...w.document.querySelectorAll('[onclick]')]
@@ -1212,15 +1320,18 @@ async function suiteTeam(w) {
   await restoreTeam(w, ownerSnap2);
   const serial = T.serialize();
   ok(!!serial && !!serial.company, 'the crew serializes for backup');
+  eq(serial.workerLogins.length, 4, 'the crew backup carries worker login records');
   await w.DB.setMeta('company', null);
   await w.DB.setMeta('teamMembers', []);
   await w.DB.setMeta('teamInvites', []);
+  await w.DB.setMeta('workerLogins', []);
   await w.DB.setMeta('teamSeats', null);
   await T.load();
   eq(T.role(), 'none', 'with the crew wiped, the owner is crewless');
   const restored = await T.restore(serial);
   ok(restored.ok && restored.company, 'restoring brings the company back');
   eq(restored.membersAdded, 6, '...and every member');
+  eq(T.workerLogins().length, 4, '...and every worker login record');
   eq(T.role(), 'owner', '...and the owner is the owner again');
   eq((await T.restore(null)).ok, true, 'restoring a pre-teams backup is a no-op, not an error');
   w.ACT.go('home');
@@ -1246,6 +1357,24 @@ async function suiteAi(w) {
   ok(typeof D === 'object' && D !== null, 'window.DIAG is exposed to the page');
   ok(typeof fnMod.aiProxy === 'function', 'functions/index.js exports aiProxy');
   ok(typeof ai === 'object' && ai !== null, 'functions/index.js exposes _ai helpers for testing');
+
+  const tradeIds = ['electrical', 'solar', 'cctv', 'networking', 'hvac', 'generator',
+    'plumbing', 'fire_access', 'smarthome', 'ev'];
+  eq(ai.MANDATORY_SAFETY && Object.keys(ai.MANDATORY_SAFETY).sort().join(','),
+    tradeIds.slice().sort().join(','), 'Cloud Function has mandatory safety for all 10 trades');
+  eq(D.MANDATORY_SAFETY && Object.keys(D.MANDATORY_SAFETY).sort().join(','),
+    tradeIds.slice().sort().join(','), 'in-app diagnosis has mandatory safety for all 10 trades');
+  eq(draftMod.VALID_TRADES.slice().sort().join(','), tradeIds.slice().sort().join(','),
+    'guide-draft helper accepts exactly the 10 supported trades');
+  for (const trade of tradeIds) {
+    const safetyPrefix = trade === 'fire_access' ? 'LIFE SAFETY:' : 'ISOLATE FIRST:';
+    ok(ai.MANDATORY_SAFETY[trade].startsWith(safetyPrefix),
+      'server safety preamble is mandatory for ' + trade);
+    ok(D.MANDATORY_SAFETY[trade].startsWith(safetyPrefix),
+      'app safety preamble is mandatory for ' + trade);
+    ok(draftMod.MANDATORY_SAFETY[trade].startsWith(safetyPrefix),
+      'draft-helper safety preamble is mandatory for ' + trade);
+  }
 
   // --- Key protection & Firestore rules for ai_requests -----------------
   ok(!/\bgsk_[A-Za-z0-9]{6,}/.test(fnSrc), 'functions/index.js hardcodes no Groq key');
@@ -1384,6 +1513,11 @@ async function suiteAi(w) {
   // --- Draft helper (`tools/draft-guide.js`) ----------------------------
   const parsedArgs = draftMod.parseArgs(['node', 'draft-guide.js', 'solar', 'Overload E05 beeping']);
   ok(parsedArgs.ok && parsedArgs.trade === 'solar', 'draft helper parses trade and dictated notes');
+  const evDraftArgs = draftMod.parseArgs(['node', 'draft-guide.js', 'ev', 'Charger fault, no power']);
+  const evPrompt = draftMod.buildDraftPrompt('ev', 'Charger fault, no power');
+  ok(evDraftArgs.ok && evDraftArgs.trade === 'ev', 'draft helper accepts the new EV trade');
+  ok(evPrompt.system.includes(draftMod.MANDATORY_SAFETY.ev),
+    'the AI drafting prompt embeds the EV safety preamble');
   const badDraft = { id: 'sol-overload', trade: 'solar', cat: 'Inverter', symptom: 'Overload', safety: '', causes: [], checks: [], parts: [] };
   eq(draftMod.validateGuideDraft(badDraft).valid, false, 'draft helper refuses a guide without a safety block');
   const goodDraft = {
@@ -1633,6 +1767,136 @@ async function suiteLandingAndOwner(w) {
 }
 
 /* =====================================================================
+   SUITE 9 — account vault and device-wide Free report quota
+   ===================================================================== */
+async function suiteAccountsQuota(w) {
+  describe('9. Saved accounts, owner switching, and strict Free report quota');
+
+  // Changing away from the owner email must revoke the stored entitlement.
+  w.ACT.editProfile();
+  await sleep(40);
+  w.document.getElementById('iEmail').value = 'solo@example.com';
+  await w.ACT.saveProfile();
+  await sleep(50);
+  const downgraded = await w.DB.getMeta('user');
+  eq(downgraded.email, 'solo@example.com', 'the updated profile email is saved');
+  eq(downgraded.ownerAccess, false, 'changing away from the owner email clears ownerAccess');
+  eq(downgraded.plan, 'free', 'changing away from the owner email resets the plan to Free');
+  eq(w.ACT.isOwner(), false, 'the changed profile no longer has owner mode');
+
+  // Settings logout saves the account locally; the new boot tab can restore it.
+  w.ACT.go('settings');
+  await sleep(40);
+  const logoutButton = w.document.querySelector('[onclick="ACT.logout()"]');
+  ok(!!logoutButton, 'Settings offers Log out / switch account');
+  const accountId = downgraded.uid;
+  await w.ACT.logout();
+  eq(await w.DB.getMeta('user'), null, 'logout clears the active local account');
+  const vault = await w.DB.getMeta('accounts');
+  ok(Array.isArray(vault) && vault.some(a => a.uid === accountId && a.email === 'solo@example.com'),
+    'DB.getMeta(accounts) keeps a saved-device account snapshot');
+  await w.ACT.loginSaved();
+  ok((w.document.body.textContent || '').includes('Log in / Worker') &&
+    (w.document.body.textContent || '').includes('solo@example.com'),
+    'the third landing tab lists saved accounts and worker-code login');
+  eq(w.document.getElementById('workerCode').maxLength, 12,
+    'the worker-code input accepts the full RQ-XXXX-XXXX code');
+  await w.ACT.loginAccount(accountId);
+  eq(w.ACT._view(), 'home', 'ACT.loginAccount returns the saved profile to Home');
+  eq((await w.DB.getMeta('user')).email, 'solo@example.com', 'saved login restores the edited email');
+  eq((await w.DB.getMeta('user')).plan, 'free', 'saved login does not restore stale owner access');
+
+  // A confirmed device reset removes accounts/jobs but deliberately retains
+  // the device-wide usage key in both IndexedDB and localStorage.
+  const preserveId = 'WIPE-PRESERVE-' + Date.now();
+  const seedLedger = { version: 1, reportIds: [preserveId], used: 1, count: 1 };
+  await w.DB.setMeta('usageLedger', seedLedger);
+  w.localStorage.setItem('rehoteq_usage_ledger_v1', JSON.stringify(seedLedger));
+  const oldConfirm = w.confirm;
+  w.confirm = () => true;
+  await w.ACT.wipe();
+  w.confirm = oldConfirm;
+  const afterWipe = await w.DB.getMeta('usageLedger');
+  const browserLedger = JSON.parse(w.localStorage.getItem('rehoteq_usage_ledger_v1') || '{}');
+  ok(afterWipe && afterWipe.reportIds.includes(preserveId),
+    'ACT.wipe preserves prior Free usage in IndexedDB');
+  ok(browserLedger.reportIds && browserLedger.reportIds.includes(preserveId),
+    'ACT.wipe preserves prior Free usage in localStorage');
+  eq(await w.DB.getMeta('accounts'), null, 'device reset clears saved account profiles');
+
+  // Fresh signup gets a clean profile, not a clean quota.
+  w.document.getElementById('iName').value = 'Fresh Technician';
+  w.document.getElementById('iPhone').value = '0803 000 1111';
+  w.document.getElementById('iCompany').value = 'Fresh Field Works';
+  await w.ACT.saveProfile();
+  await sleep(40);
+  eq((await w.DB.getMeta('user')).plan, 'free', 'a fresh profile starts on Free');
+  const signupLedger = await w.DB.getMeta('usageLedger');
+  ok(signupLedger.reportIds.includes(preserveId),
+    'signing up again on the same device keeps the previous usage entry');
+
+  // Seed a known empty ledger after the persistence checks so the quota
+  // boundary is independent of older test fixtures or migrated reports.
+  const emptyLedger = { version: 1, reportIds: [], used: 0, count: 0 };
+  await w.DB.setMeta('usageLedger', emptyLedger);
+  w.localStorage.setItem('rehoteq_usage_ledger_v1', JSON.stringify(emptyLedger));
+  const freeJobs = [
+    { id: 'FREE-REPORT-1' }, { id: 'FREE-REPORT-2' },
+    { id: 'FREE-REPORT-3' }, { id: 'FREE-REPORT-4' }
+  ];
+  for (let i = 0; i < 3; i++) {
+    eq(await w.ACT.canGenerateReport(freeJobs[i]), true,
+      'Free plan can generate report ' + (i + 1) + ' of 3');
+  }
+  eq(await w.ACT.canGenerateReport(freeJobs[3]), false,
+    'the fourth unique Free report is refused');
+  eq((await w.DB.getMeta('usageLedger')).used, 3, 'three unique reports fill the Free ledger exactly');
+  const persistedAfterThree = JSON.parse(w.localStorage.getItem('rehoteq_usage_ledger_v1'));
+  eq(persistedAfterThree.used, 3, 'the three-report count is mirrored in localStorage');
+
+  // Both report actions call the real guard before mutating/generating.
+  const actionJob = {
+    id: 'FREE-REPORT-FINISH-4', ref: 'RF-QUOTA-4', trade: 'solar', jobType: 'Report test',
+    status: 'draft', lockedAt: null, companyId: null,
+    signatures: { customer: { name: 'Customer' }, technician: { name: 'Technician' } }
+  };
+  w.ACT._setJobForTest(actionJob);
+  await w.ACT.finish();
+  ok(w.document.getElementById('paywall').classList.contains('show'),
+    'ACT.finish opens the paywall when the Free quota is exhausted');
+  eq(await w.DB.get('jobs', actionJob.id), undefined,
+    'ACT.finish does not lock or save an over-quota report');
+  eq((await w.DB.getMeta('usageLedger')).used, 3,
+    'ACT.finish does not reserve a fourth usage slot');
+  w.ACT.closePaywall();
+  w.ACT._setJobForTest(actionJob);
+  await w.ACT.pdf();
+  ok(w.document.getElementById('paywall').classList.contains('show'),
+    'ACT.pdf opens the paywall when the Free quota is exhausted');
+  eq((await w.DB.getMeta('usageLedger')).used, 3,
+    'ACT.pdf does not reserve a fourth usage slot');
+  w.ACT.closePaywall();
+
+  // Company and explicitly marked demo jobs never spend a personal slot.
+  const usedBeforeBypasses = (await w.DB.getMeta('usageLedger')).used;
+  eq(await w.ACT.canGenerateReport({ id: 'COMPANY-REPORT', companyId: 'CO-TEST' }), true,
+    'company reports bypass the personal Free quota');
+  eq(await w.ACT.canGenerateReport({ id: 'DEMO-REPORT', isDemo: true }), true,
+    'demo reports bypass the personal Free quota');
+  eq((await w.DB.getMeta('usageLedger')).used, usedBeforeBypasses,
+    'company and demo reports do not consume ledger entries');
+  w.ACT._setJobForTest(null);
+
+  await w.ACT.loadDemo();
+  const demo = (await w.DB.all('jobs')).find(j => j.isDemo);
+  ok(!!demo && demo.isDemo === true, 'ACT.loadDemo saves the job with isDemo=true');
+  eq((await w.DB.getMeta('usageLedger')).reportIds.includes(demo && demo.id), false,
+    'the saved demo job is not migrated into the Free usage ledger');
+  w.ACT.go('home');
+  await sleep(30);
+}
+
+/* =====================================================================
    run
    ===================================================================== */
 (async () => {
@@ -1659,6 +1923,7 @@ async function suiteLandingAndOwner(w) {
   await suiteTeam(w);
   await suiteAi(w);
   await suiteLandingAndOwner(w);
+  await suiteAccountsQuota(w);
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);
