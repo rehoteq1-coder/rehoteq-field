@@ -109,6 +109,25 @@
       appId: '1:1083351168714:web:049bc950acd50e6e492633'
     },
 
+    // ------------------------------------------------------------------
+    // V3 AI fault diagnosis proxy (`aiProxy` Cloud Function).
+    //
+    // ⚠️ NEVER put a Groq API key in this file or anywhere in this repo.
+    // The key lives only in Firebase functions config on the server
+    // (`firebase functions:config:set groq.key="..."`) and on your own
+    // computer's environment for the offline library draft tool.
+    // ------------------------------------------------------------------
+    ai: {
+      endpoint: 'https://us-central1-rehoteq-field.cloudfunctions.net/aiProxy'
+    },
+
+    // Platform owner account — full access to all plans (Free, Pro, Business).
+    owners: ['rehoteq@gmail.com', 'rehoteq1@gmail.com'],
+    isOwner(email) {
+      const e = String(email || '').trim().toLowerCase();
+      return Boolean(e && CONFIG.owners.includes(e));
+    },
+
     slugify: slugify
   };
 

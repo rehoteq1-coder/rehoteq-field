@@ -191,7 +191,7 @@ async function suiteIcons(w) {
   // views and assert none of them leaks one.
   const names = Object.keys(w.ICONS).filter(n => n.length > 3);
   const leaks = [];
-  for (const v of ['home', 'library', 'jobs', 'settings', 'passport', 'team', 'company']) {
+  for (const v of ['home', 'library', 'jobs', 'settings', 'passport', 'team', 'company', 'diagnose']) {
     w.ACT.go(v);
     await sleep(40);
     const text = w.document.body.textContent || '';
@@ -370,7 +370,11 @@ function suiteDomain(w) {
       // typo'd or substituted payment domain still fails the build — the
       // point of the guard is that no host appears by accident.
       const okPayment = /^flutterwave\.com$/.test(host);
-      if (!OWNED.includes(host) && !okThirdParty && !okPayment) {
+      // us-central1-rehoteq-field.cloudfunctions.net is our own Firebase
+      // Cloud Function host for `aiProxy`, so the Groq key stays on the
+      // server and never enters client code.
+      const okCloudFn = host === 'us-central1-rehoteq-field.cloudfunctions.net';
+      if (!OWNED.includes(host) && !okThirdParty && !okPayment && !okCloudFn) {
         foreign.push(f + ' \u2192 ' + host);
       }
     });
@@ -613,12 +617,13 @@ async function suitePricing(w) {
   // A secret key in a static PWA is a blank cheque: every visitor can read
   // this source. Catch it the same way we catch rehoteq.ng.
   const secrets = [];
-  SHIPPED.forEach(f => {
+  SHIPPED.concat(['functions/index.js', 'functions/library.js', 'tools/draft-guide.js']).forEach(f => {
     const full = path.join(ROOT, f);
     if (!fs.existsSync(full)) return;
     const src = fs.readFileSync(full, 'utf8');
     if (/\bsk_(live|test)_[A-Za-z0-9]{6,}/.test(src)) secrets.push(f + ' — secret key');
     if (/\bFLWSECK-[A-Za-z0-9-]{6,}/.test(src)) secrets.push(f + ' — Flutterwave secret');
+    if (/\bgsk_[A-Za-z0-9]{6,}/.test(src)) secrets.push(f + ' — Groq API key');
   });
   ok(secrets.length === 0, 'no secret API keys in shipped code', secrets.join('\n      '));
 
@@ -1223,6 +1228,411 @@ async function suiteTeam(w) {
 }
 
 /* =====================================================================
+   SUITE 7 — V3 AI fault diagnosis (`aiProxy`, `DIAG`, safety, grounding,
+             human-in-the-loop confirmation, draft helper, and key guards)
+   ===================================================================== */
+async function suiteAi(w) {
+  describe('7. AI diagnosis — grounded in the library, safety first, human-confirmed');
+
+  const fnSrc = fs.readFileSync(path.join(ROOT, 'functions/index.js'), 'utf8');
+  const rulesSrc = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
+  const draftSrc = fs.readFileSync(path.join(ROOT, 'tools/draft-guide.js'), 'utf8');
+  const fnMod = require(path.join(ROOT, 'functions/index.js'));
+  const libMod = require(path.join(ROOT, 'functions/library.js'));
+  const draftMod = require(path.join(ROOT, 'tools/draft-guide.js'));
+  const ai = fnMod._ai;
+  const D = w.DIAG;
+
+  ok(typeof D === 'object' && D !== null, 'window.DIAG is exposed to the page');
+  ok(typeof fnMod.aiProxy === 'function', 'functions/index.js exports aiProxy');
+  ok(typeof ai === 'object' && ai !== null, 'functions/index.js exposes _ai helpers for testing');
+
+  // --- Key protection & Firestore rules for ai_requests -----------------
+  ok(!/\bgsk_[A-Za-z0-9]{6,}/.test(fnSrc), 'functions/index.js hardcodes no Groq key');
+  ok(!/\bgsk_[A-Za-z0-9]{6,}/.test(draftSrc), 'tools/draft-guide.js hardcodes no Groq key');
+  ok(/functions\.config\(\)\.groq/.test(fnSrc), 'aiProxy reads groq.key from Firebase functions config');
+  ok(/process\.env\.GROQ_API_KEY/.test(draftSrc), 'the draft helper reads GROQ_API_KEY from the terminal environment');
+
+  const aiRuleBlock = (rulesSrc.match(/match \/ai_requests\/\{requestId\}[\s\S]*?\n    \}/) || [''])[0];
+  ok(aiRuleBlock.length > 0, 'firestore.rules has an explicit rule block for ai_requests');
+  ok(/allow create, update, delete: if false/.test(aiRuleBlock),
+    'clients cannot create, edit, or delete ai_requests (only aiProxy writes logs)');
+  ok(/allow read: if signedIn\(\) && resource\.data\.uid == request\.auth\.uid/.test(aiRuleBlock),
+    'a signed-in user may read only their own ai_requests rows');
+
+  // --- Curated library parity between data.js and functions/library.js --
+  eq(libMod.FALLBACK_LIBRARY.length, w.DATA.LIBRARY.length,
+    'functions/library.js matches data.js guide count (' + w.DATA.LIBRARY.length + ')');
+  const rootIds = w.DATA.LIBRARY.map(e => e.id).join(',');
+  const fnIds = libMod.FALLBACK_LIBRARY.map(e => e.id).join(',');
+  eq(fnIds, rootIds, 'functions/library.js carries the exact same guide IDs in order');
+  ok(w.DATA.LIBRARY.every(e => typeof e.safety === 'string' && e.safety.trim().length > 15),
+    'every guide in data.js carries a mandatory non-empty safety block');
+
+  // --- Cloud Function (`aiProxy` / `runDiagnosis`) ----------------------
+  const logs = [];
+  const logCapture = async rec => { logs.push(rec); };
+
+  // 1. Empty input is rejected with 400
+  const emptyRes = await ai.runDiagnosis({ trade: 'solar', fault: '' }, { log: logCapture });
+  eq(emptyRes.statusHttp, 400, 'aiProxy rejects an empty fault description with HTTP 400');
+
+  // 2. Out-of-scope safety classifier refuses gas, structural, medical, and utility HV
+  const oosCases = [
+    ['solar', 'Customer smells a cooking gas leak near the inverter room', 'gas'],
+    ['solar', 'Roof collapsing under the panel rails, structural crack in beam', 'structural'],
+    ['electrical', 'ICU ventilator medical equipment power supply tripping', 'medical'],
+    ['electrical', '11kV street transformer pole sparking on the road', 'utility_hv']
+  ];
+  for (const [tr, fText, cat] of oosCases) {
+    let groqCalled = false;
+    const r = await ai.runDiagnosis(
+      { trade: tr, fault: fText },
+      { log: logCapture, callGroq: async () => { groqCalled = true; return {}; } }
+    );
+    eq(r.body.status, 'refused', 'aiProxy refuses out-of-scope (' + cat + ')');
+    eq(r.body.category, cat, '...identifies category ' + cat);
+    ok(!groqCalled, '...and never calls Groq for an out-of-scope hazard (' + cat + ')');
+    ok(r.body.safety[0].startsWith('ISOLATE FIRST:'), '...prepends mandatory safety block (' + cat + ')');
+    ok(r.body.tellCustomer.length > 15, '...tells the technician what to tell the customer (' + cat + ')');
+  }
+  eq(logs[logs.length - 1].outcome, 'refused_out_of_scope', 'out-of-scope refusal is logged to ai_requests');
+
+  // 3. No verified entry in the curated library -> says so plainly, never guesses
+  let groqCalledOnUnknown = false;
+  const unknownRes = await ai.runDiagnosis(
+    { trade: 'solar', fault: 'Walkie-talkie UHF repeater squelch drift on channel 9' },
+    { log: logCapture, callGroq: async () => { groqCalledOnUnknown = true; return {}; } }
+  );
+  eq(unknownRes.body.status, 'no_match', 'when the library has no verified entry, status is no_match');
+  ok(/no verified entry/i.test(unknownRes.body.message) && /will not guess/i.test(unknownRes.body.message),
+    '...message says plainly there is no verified entry and it will not guess');
+  eq(unknownRes.body.possible_causes.length, 0, '...emits zero guessed causes');
+  ok(!groqCalledOnUnknown, '...never calls Groq when the library has no verified entry');
+  eq(logs[logs.length - 1].outcome, 'no_verified_entry', '...logs no_verified_entry to ai_requests');
+
+  // 4. Verified library match + Groq strict JSON card response + safety block prepended
+  const mockGroqValid = async () => ({
+    matched_guide_id: 'sol-e03',
+    possible_causes: [
+      { t: 'Loose or high-resistance DC connection', p: 'HIGH', d: 'Battery lug on unit 3 is dropping voltage under fridge surge.' },
+      { t: 'Startup surge exceeds inverter capability', p: 'MED', d: 'Compressor starting draw exceeds surge rating.' }
+    ],
+    checks: [
+      'Measure open-circuit battery voltage at the inverter terminals.',
+      'Repeat the measurement while the motor starts and feel every DC lug for heat.'
+    ],
+    safety: ['Verify array is covered before touching DC lugs.'],
+    parts: [
+      { d: '35 mm² copper lug', price: 1500 },
+      { d: 'Heat-shrink kit', price: 1500 }
+    ],
+    confidence: 0.91,
+    escalate_to_human: false
+  });
+  const diagRes = await ai.runDiagnosis(
+    { trade: 'solar', fault: 'Inverter shuts down when fridge starts', code: 'E03', uid: 'TECH-1' },
+    { log: logCapture, callGroq: mockGroqValid }
+  );
+  eq(diagRes.statusHttp, 200, 'verified fault returns HTTP 200');
+  eq(diagRes.body.status, 'diagnosed', '...with status diagnosed');
+  eq(diagRes.body.matched_guide_id, 'sol-e03', '...matched to verified guide sol-e03');
+  eq(diagRes.body.fallback, false, '...ranked by Groq (not fallback)');
+  ok(diagRes.body.safety[0].startsWith('ISOLATE FIRST:'),
+    '...prepends the hard-coded mandatory trade safety preamble first');
+  ok(diagRes.body.safety.some(s => s.includes('DC strings stay live in daylight')),
+    '...includes the verified guide safety block');
+  eq(diagRes.body.possible_causes.length, 2, '...returns structured cause cards');
+  eq(logs[logs.length - 1].outcome, 'diagnosed', '...logs diagnosed outcome to ai_requests');
+  eq(logs[logs.length - 1].uid, 'TECH-1', '...records the technician uid in ai_requests');
+
+  // 5. Schema validation rejects prose, bad guide IDs, and retries once before library fallback
+  eq(ai.validateAiSchema('Here is a paragraph of chat prose', libMod.LIBRARY).valid, false,
+    'schema validator rejects chat prose');
+  eq(ai.validateAiSchema({ matched_guide_id: 'invented-id', possible_causes: [], checks: [], parts: [], confidence: 0.5, escalate_to_human: false },
+    [libMod.LIBRARY[0]]).valid, false,
+    'schema validator rejects an invented guide ID outside retrieved candidates');
+
+  let tries = 0;
+  const retryRes = await ai.runDiagnosis(
+    { trade: 'solar', fault: 'Inverter trips on E03 when motor starts', code: 'E03' },
+    {
+      log: logCapture,
+      callGroq: async () => {
+        tries++;
+        if (tries === 1) return 'chat prose that violates schema';
+        return mockGroqValid();
+      }
+    }
+  );
+  eq(tries, 2, 'aiProxy retries once when the first Groq response fails schema validation');
+  eq(retryRes.body.fallback, false, '...and succeeds on the retry when valid JSON arrives');
+
+  const fallbackRes = await ai.runDiagnosis(
+    { trade: 'solar', fault: 'Inverter trips on E03 when motor starts', code: 'E03' },
+    {
+      log: logCapture,
+      callGroq: async () => { throw new Error('Groq unreachable'); }
+    }
+  );
+  eq(fallbackRes.body.status, 'diagnosed', 'when Groq fails twice, aiProxy still returns structured cards');
+  eq(fallbackRes.body.fallback, true, '...marked as deterministic library fallback');
+  eq(fallbackRes.body.matched_guide_id, 'sol-e03', '...from the matched verified guide');
+  ok(fallbackRes.body.safety[0].startsWith('ISOLATE FIRST:'), '...with mandatory safety block first');
+  eq(logs[logs.length - 1].outcome, 'fallback_library', '...and logs fallback_library to ai_requests');
+
+  // --- Draft helper (`tools/draft-guide.js`) ----------------------------
+  const parsedArgs = draftMod.parseArgs(['node', 'draft-guide.js', 'solar', 'Overload E05 beeping']);
+  ok(parsedArgs.ok && parsedArgs.trade === 'solar', 'draft helper parses trade and dictated notes');
+  const badDraft = { id: 'sol-overload', trade: 'solar', cat: 'Inverter', symptom: 'Overload', safety: '', causes: [], checks: [], parts: [] };
+  eq(draftMod.validateGuideDraft(badDraft).valid, false, 'draft helper refuses a guide without a safety block');
+  const goodDraft = {
+    id: 'sol-overload', trade: 'solar', cat: 'Hybrid inverter',
+    symptom: 'Inverter overload alarm, beeping continuously', code: 'E05', freq: 'high',
+    causes: [{ t: 'Load exceeds inverter continuous rating', p: 'HIGH', d: 'Clamp-meter the AC output.' }],
+    checks: ['Measure AC load current with a clamp meter and compare to continuous rating.'],
+    safety: 'Isolate AC output before opening the distribution board.',
+    parts: [{ d: 'Changeover switch', price: 12000 }],
+    source: 'REHOTEQ field data'
+  };
+  eq(draftMod.validateGuideDraft(goodDraft).valid, true, 'draft helper validates a complete guide entry');
+  const formatted = draftMod.formatGuideForDataJs(goodDraft);
+  ok(formatted.includes("id: 'sol-overload'") && formatted.includes('safety:'),
+    'draft helper formats valid JS ready for review');
+
+  // --- In-app Diagnose screen & human-in-the-loop confirmation ----------
+  w.ACT.go('actions');
+  await sleep(50);
+  const diagTile = [...w.document.querySelectorAll('.tile')]
+    .find(b => (b.textContent || '').includes('Diagnose a fault'));
+  ok(!!diagTile, 'the action sheet has the Diagnose a fault tile');
+  ok(diagTile && !diagTile.classList.contains('locked'),
+    'the V3 Diagnose a fault tile is unlocked');
+  if (diagTile) {
+    w.eval('(function(){ ' + diagTile.getAttribute('onclick') + ' })()');
+    await sleep(60);
+  }
+  eq(w.ACT._view(), 'diagnose', 'tapping the tile lands on the Diagnose screen');
+
+  // Offline honesty check
+  D._setOnline(false);
+  await sleep(40);
+  const offlineText = w.document.body.textContent || '';
+  ok(/Offline — AI diagnosis needs a connection/.test(offlineText),
+    'when offline, the Diagnose screen says plainly that AI diagnosis needs a connection');
+  eq((await D.diagnose({ trade: 'solar', fault: 'E03' })).error, 'offline',
+    'DIAG.diagnose refuses to run while offline');
+
+  // Back online
+  D._setOnline(true);
+  await sleep(40);
+  const onlineText = w.document.body.textContent || '';
+  ok(/Online-only/.test(onlineText) && /Nothing enters your job card until you confirm a cause/.test(onlineText),
+    'when online, the Diagnose screen states both online-only and confirmation rules plainly');
+
+  // Out-of-scope on screen
+  w.document.getElementById('dFault').value = 'Customer smells cooking gas leak by the cylinder';
+  await w.ACT.runDiagnose();
+  await sleep(50);
+  const oosScreen = w.document.body.textContent || '';
+  ok(/Out of scope/.test(oosScreen) && /licensed gas \/ LPG technician/.test(oosScreen),
+    'the Diagnose screen renders out-of-scope refusal and names the licensed specialist');
+  eq(w.document.querySelectorAll('[onclick*="ACT.confirmCause"]').length, 0,
+    'out-of-scope refusal offers zero Confirm cause buttons');
+
+  // No verified entry on screen -> never guesses
+  w.ACT.clearDiag();
+  await sleep(30);
+  w.document.getElementById('dFault').value = 'Walkie talkie frequency drift on UHF channel 9';
+  await w.ACT.runDiagnose();
+  await sleep(50);
+  const noMatchScreen = w.document.body.textContent || '';
+  ok(/No verified entry in the library/.test(noMatchScreen) && /will not guess/.test(noMatchScreen),
+    'when the library has no verified entry, the screen says so plainly and never guesses');
+  eq(w.document.querySelectorAll('[onclick*="ACT.confirmCause"]').length, 0,
+    'no-verified-entry state offers zero Confirm cause buttons');
+
+  // Start a job card, run diagnosis with a mocked proxy fetch, prove nothing enters
+  // the job card until the technician taps Confirm cause
+  await w.ACT.startJob();
+  await sleep(50);
+  eq(w.ACT._view(), 'newjob', 'started a fresh job card');
+  w.ACT.openDiagnose();
+  await sleep(50);
+  eq(w.ACT._view(), 'diagnose', 'opened Diagnose from the active job flow');
+
+  w.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      status: 'diagnosed',
+      trade: 'solar',
+      fallback: false,
+      matched_guide_id: 'sol-e03',
+      possible_causes: [
+        { t: 'Loose or high-resistance DC connection', p: 'HIGH', d: 'Voltage collapses during the surge, tripping overcurrent protection.' },
+        { t: 'Startup surge exceeds inverter capability', p: 'MED', d: 'Compressor draws 4–6x running current.' }
+      ],
+      checks: [
+        'Measure open-circuit battery voltage at the inverter terminals.',
+        'After 10 minutes on load, feel every DC lug for heat.'
+      ],
+      safety: ['Cover the array before working on DC terminations.'],
+      parts: [{ d: '35 mm² copper lug', price: 1500 }],
+      confidence: 0.92,
+      escalate_to_human: false
+    })
+  });
+
+  w.document.getElementById('dCode').value = 'E03';
+  w.document.getElementById('dFault').value = 'Inverter trips when fridge starts';
+  await w.ACT.runDiagnose();
+  await sleep(60);
+
+  const diagScreen = w.document.body.textContent || '';
+  ok(/Safety first/.test(diagScreen) && /ISOLATE FIRST:/.test(diagScreen),
+    'diagnosed view renders the mandatory Safety first block at the top');
+  ok(/Loose or high-resistance DC connection/.test(diagScreen),
+    'diagnosed view renders the ranked cause cards');
+  ok(/Check in this order/.test(diagScreen),
+    'diagnosed view renders the ordered checks');
+
+  // Crucial rule: before tapping Confirm cause, S.job.diagnosis is still empty!
+  const jobBeforeConfirm = (await w.DB.all('jobs')).find(j => j.id === D.state().jobId) ||
+    (await w.DB.all('jobs')).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+  eq(jobBeforeConfirm.diagnosis, '',
+    'running a diagnosis NEVER writes to the job card before the technician confirms a cause');
+
+  // Now tap the real Confirm cause button on card 0
+  const confirmBtn = w.document.querySelector('[onclick="ACT.confirmCause(0)"]');
+  ok(!!confirmBtn, 'each ranked cause card has a tappable Confirm cause button');
+  if (confirmBtn) {
+    w.eval('(function(){ ' + confirmBtn.getAttribute('onclick') + ' })()');
+    await sleep(80);
+  }
+  eq(w.ACT._view(), 'jobcard', 'confirming a cause returns the technician to the job card');
+  const jobAfterConfirm = await w.DB.get('jobs', jobBeforeConfirm.id);
+  ok(jobAfterConfirm.diagnosis.includes('Loose or high-resistance DC connection'),
+    'after confirmation, the chosen cause is written into the job card diagnosis');
+  ok(jobAfterConfirm.fault.includes('E03'),
+    '...and the fault description is carried onto the job card');
+  ok(jobAfterConfirm.materials.some(m => m.desc.includes('copper lug')),
+    '...and priced parts from the verified guide pre-fill materials');
+
+  const outbox = await w.DB.all('outbox');
+  ok(outbox.some(o => o.op && o.op.type === 'ai.request'), 'outbox logs ai.request');
+  ok(outbox.some(o => o.op && o.op.type === 'ai.confirm'), 'outbox logs ai.confirm when the technician confirms');
+
+  delete w.fetch;
+  w.ACT.go('home');
+  await sleep(30);
+}
+
+/* =====================================================================
+   SUITE 8 — Landing page (Individual vs Company) & Owner all-plans access
+   ===================================================================== */
+async function suiteLandingAndOwner(w) {
+  describe('8. Landing page & owner all-plans access');
+
+  const fnMod = require(path.join(ROOT, 'functions/index.js'));
+  const ai = fnMod._ai;
+
+  // --- Owner email recognition in config.js and functions/index.js -----
+  ok(typeof w.CONFIG.isOwner === 'function', 'CONFIG.isOwner is exposed');
+  ok(w.CONFIG.isOwner('rehoteq@gmail.com'), 'CONFIG.isOwner recognises rehoteq@gmail.com');
+  ok(w.CONFIG.isOwner('  REHOTEQ@GMAIL.COM '), 'CONFIG.isOwner is case-insensitive and trims whitespace');
+  ok(!w.CONFIG.isOwner('someone@example.com'), 'CONFIG.isOwner rejects non-owner emails');
+  ok(ai.isOwnerEmail('rehoteq@gmail.com'), 'functions/index.js isOwnerEmail recognises rehoteq@gmail.com');
+  ok(!ai.isOwnerEmail('stranger@example.com'), 'functions/index.js isOwnerEmail rejects strangers');
+
+  const fnSrc = fs.readFileSync(path.join(ROOT, 'functions/index.js'), 'utf8');
+  ok(/rehoteq@gmail\.com/.test(fnSrc), 'functions/index.js grants owner access to rehoteq@gmail.com');
+  ok(/allPlansAccess:\s*owner/.test(fnSrc), 'createAccount records allPlansAccess for the owner');
+
+  // --- First-run landing screen (before any account exists) ------------
+  await w.DB.del('meta', 'user');
+  await w.DB.del('meta', 'company');
+  await w.DB.del('meta', 'teamMembers');
+  await w.DB.del('meta', 'teamInvites');
+  await w.DB.del('meta', 'teamSeats');
+  const wFresh = bootApp();
+  await sleep(160);
+  eq(wFresh.ACT._view(), 'boot', 'a fresh phone lands on the boot / landing screen');
+  const landText = wFresh.document.body.textContent || '';
+  ok(/Field Engineering OS/.test(landText), 'landing page displays the Field Engineering OS hero banner');
+  ok(/See a live PDF report/.test(landText), 'landing page offers a 1-tap live PDF report preview before signup');
+  ok(/What your customer receives/.test(landText), 'landing page previews what the customer receives on WhatsApp');
+  ok(/Individual Technician/.test(landText), 'landing page offers Individual Technician onboarding');
+  ok(/As a Company \/ Crew/.test(landText), 'landing page offers Company / Crew onboarding');
+
+  // Switching between Individual and Company preserves typed fields and reveals company stamp fields
+  wFresh.document.getElementById('iName').value = 'Engr. Kunle';
+  wFresh.document.getElementById('iCompany').value = 'Kunle Solar Ltd';
+  const companyTab = wFresh.document.querySelector('[onclick="ACT.setOnboardMode(\'company\')"]');
+  ok(!!companyTab, 'tappable Company / Crew tab exists on the landing page');
+  wFresh.eval('(function(){ ' + companyTab.getAttribute('onclick') + ' })()');
+  await sleep(50);
+  eq(wFresh.document.getElementById('iName').value, 'Engr. Kunle',
+    'switching to Company mode preserves typed name');
+  ok(!!wFresh.document.getElementById('iAddress') && !!wFresh.document.getElementById('iBank'),
+    'Company mode exposes business address and bank details on first run');
+  ok(/Start as a Company/.test(wFresh.document.body.textContent || ''),
+    'CTA updates to "Start as a Company"');
+
+  // Saving in Company mode creates the profile AND initializes the company crew workspace
+  await wFresh.ACT.saveProfile();
+  await sleep(80);
+  eq(wFresh.ACT._view(), 'home', 'saving Company onboarding lands on home');
+  eq(wFresh.TEAM.role(), 'owner', 'starting as a Company automatically initializes the crew owner workspace');
+  eq((await wFresh.DB.getMeta('company')).name, 'Kunle Solar Ltd',
+    'the company stamp carries the company name from onboarding');
+
+  // --- Owner (rehoteq@gmail.com) gets access to all plans --------------
+  w.ACT.editProfile();
+  await sleep(60);
+  w.document.getElementById('iName').value = 'Toye (REHOTEQ Owner)';
+  w.document.getElementById('iPhone').value = '0703 630 2585';
+  w.document.getElementById('iCompany').value = 'REHOTEQ Technologies';
+  w.document.getElementById('iEmail').value = 'rehoteq@gmail.com';
+  await w.ACT.saveProfile();
+  await sleep(80);
+
+  eq(w.ACT.isOwner(), true, 'ACT.isOwner() is true for rehoteq@gmail.com');
+  const savedOwner = await w.DB.getMeta('user');
+  eq(savedOwner.ownerAccess, true, 'user record is marked with ownerAccess');
+  eq(savedOwner.plan, 'business', 'rehoteq@gmail.com defaults to highest tier (business) with all plans unlocked');
+
+  const homeTxt = w.document.body.textContent || '';
+  ok(/Owner — all plans unlocked/.test(homeTxt), 'home meter shows Owner — all plans unlocked');
+
+  w.ACT.go('settings');
+  await sleep(60);
+  const settingsTxt = w.document.body.textContent || '';
+  ok(/Owner access \(rehoteq@gmail\.com\)/.test(settingsTxt),
+    'Settings Subscription card displays Owner access for rehoteq@gmail.com');
+
+  // Owner can switch between Free, Pro, and Business at will
+  const proPill = w.document.querySelector('[onclick="ACT.setPlan(\'pro\')"]');
+  const freePill = w.document.querySelector('[onclick="ACT.setPlan(\'free\')"]');
+  const bizPill = w.document.querySelector('[onclick="ACT.setPlan(\'business\')"]');
+  ok(!!proPill && !!freePill && !!bizPill, 'Settings renders Free, Pro, and Business plan pills for the owner');
+
+  await w.ACT.setPlan('pro');
+  await sleep(40);
+  eq((await w.DB.getMeta('user')).plan, 'pro', 'owner can switch to Pro plan in one tap');
+  await w.ACT.setPlan('free');
+  await sleep(40);
+  eq((await w.DB.getMeta('user')).plan, 'free', 'owner can switch to Free plan in one tap');
+  eq(w.ACT.isOwner(), true, 'even when previewing Free, rehoteq@gmail.com retains Owner status');
+  await w.ACT.setPlan('business');
+  await sleep(40);
+  eq((await w.DB.getMeta('user')).plan, 'business', 'owner can switch back to Business plan in one tap');
+
+  w.ACT.go('home');
+  await sleep(30);
+}
+
+/* =====================================================================
    run
    ===================================================================== */
 (async () => {
@@ -1247,6 +1657,8 @@ async function suiteTeam(w) {
   suiteRules();
   await suiteFirebase(w);
   await suiteTeam(w);
+  await suiteAi(w);
+  await suiteLandingAndOwner(w);
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);

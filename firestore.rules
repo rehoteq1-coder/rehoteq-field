@@ -119,6 +119,17 @@ service cloud.firestore {
       allow delete: if signedIn() && owns();
     }
 
+    /* ---- AI diagnosis audit log (written by aiProxy only) ------------ */
+
+    // Every diagnosis call is logged by the aiProxy Cloud Function for
+    // safety auditing and the V3 training flywheel. Clients never write
+    // or alter log rows directly — only the server does. A signed-in
+    // technician may read their own log entries and no one else's.
+    match /ai_requests/{requestId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
     /* ---- everything else -------------------------------------------- */
 
     // Default deny. A new collection is invisible until someone writes a
