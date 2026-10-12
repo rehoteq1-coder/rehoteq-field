@@ -159,8 +159,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v25'/.test(swSrc),
-    'the service-worker cache is bumped to v25 for the release');
+  ok(/const CACHE = 'rehoteq-field-v26'/.test(swSrc),
+    'the service-worker cache is bumped to v26 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -1911,6 +1911,15 @@ async function suiteAccountsQuota(w) {
   }
 
   async function suiteWelcomeTrial() {
+    const wApp = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+    const wCss = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+    ok(wApp.indexOf('icon-r-mark.png') !== -1,
+      'the welcome screen shows the real R mark from the app icons');
+    ok(/w-mark-glow/.test(wApp), 'the R mark carries an animated glow ring');
+    ok(wCss.indexOf('@media (min-width:900px)') !== -1,
+      'the welcome screen has a desktop layout');
+    ok(wCss.indexOf('@media (prefers-reduced-motion:reduce)') !== -1,
+      'welcome animations respect reduced-motion preferences');
     const icons = require(path.join(ROOT, 'icons.js'));
     const zap = icons.ICON('zap', 18);
     eq((zap.match(/<svg/g) || []).length, 1, 'ICON emits exactly one opening svg tag');

@@ -1597,30 +1597,45 @@
      -------------------------------------------------------------------- */
   V.welcome = () => `
     <div class="welcome">
-      <div class="w-mark">R</div>
-      <div class="w-name">REHOTEQ <em>Field</em></div>
-      <div class="w-tag">Diagnose it. Prove it. Get paid.</div>
-      <div class="w-lead">
-        Turn every site visit into tamper-evident photo proof, a signed PDF
-        service report and a QR equipment passport your customer can verify
-        on WhatsApp. Everything works offline, account or not.
+      <div class="w-bg" aria-hidden="true">
+        <div class="w-grid"></div>
+        <div class="w-orb w-orb-cyan"></div>
+        <div class="w-orb w-orb-amber"></div>
+        <div class="w-orb w-orb-lime"></div>
       </div>
-      <div class="w-metrics">
-        <div><b>${DATA.TRADES.length}</b>Trades</div>
-        <div><b>${DATA.LIBRARY.length}</b>Guides + AI</div>
-        <div><b>PDF + QR</b>Stamped proof</div>
-      </div>
-      <div class="w-card">
-        <div class="w-eyebrow">What your customer receives</div>
-        <b>Stamped A4 service report &amp; quotation</b>
-        <p>GPS-stamped photos, dual signatures and a QR passport for every installation, locked by a SHA-256 hash chain.</p>
-        <div class="w-pills"><span>Signed PDF</span><span>QR passport</span><span>RF-2026-00184</span></div>
-      </div>
-      <div class="w-actions">
-        <button class="btn solid-w" onclick="ACT.signIn()">${ICON('log-in', 17)} Get started free</button>
-        <button class="btn outline-w" onclick="ACT.enterApp()">Try it first, no account</button>
-        <button class="w-link" onclick="ACT.signIn()">Already have an account? Sign in</button>
-        <div class="w-fine">Every new account starts a 14-day Pro trial.<br>Pro ${money(DATA.PLANS.pro.price)}/month after · your work stays on this phone either way.</div>
+      <div class="w-wrap">
+        <div class="w-hero">
+          <div class="w-mark">
+            <span class="w-mark-glow" aria-hidden="true"></span>
+            <img src="icon-r-mark.png" alt="REHOTEQ Field mark">
+          </div>
+          <div class="w-name">REHOTEQ <em>Field</em></div>
+          <div class="w-tag">Diagnose it. Prove it. Get paid.</div>
+          <div class="w-lead">
+            Turn every site visit into tamper-evident photo proof, a signed PDF
+            service report and a QR equipment passport your customer can verify
+            on WhatsApp. Everything works offline, account or not.
+          </div>
+          <div class="w-metrics">
+            <div><b>${DATA.TRADES.length}</b>Trades</div>
+            <div><b>${DATA.LIBRARY.length}</b>Guides + AI</div>
+            <div><b>PDF + QR</b>Stamped proof</div>
+          </div>
+        </div>
+        <div class="w-side">
+          <div class="w-card">
+            <div class="w-eyebrow">What your customer receives</div>
+            <b>Stamped A4 service report &amp; quotation</b>
+            <p>GPS-stamped photos, dual signatures and a QR passport for every installation, locked by a SHA-256 hash chain.</p>
+            <div class="w-pills"><span>Signed PDF</span><span>QR passport</span><span>RF-2026-00184</span></div>
+          </div>
+          <div class="w-actions">
+            <button class="btn solid-w" onclick="ACT.signIn()">${ICON('log-in', 17)} Get started free</button>
+            <button class="btn outline-w" onclick="ACT.enterApp()">Try it first, no account</button>
+            <button class="w-link" onclick="ACT.signIn()">Already have an account? Sign in</button>
+            <div class="w-fine">Every new account starts a 14-day Pro trial.<br>Pro ${money(DATA.PLANS.pro.price)}/month after · your work stays on this phone either way.</div>
+          </div>
+        </div>
       </div>
     </div>`;
 
