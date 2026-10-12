@@ -33,6 +33,16 @@ body{
 #shell.w-open{max-width:none;max-height:none;height:100svh;border-radius:0;box-shadow:none}
 #shell.w-open .statusbar{display:none}
 
+/* ---------- desktop: every page leaves the phone shell ----------
+   On a PC the app fills the browser like a real desktop tool; screens
+   keep a comfortable reading width instead of stretching to 1440px. */
+@media(min-width:900px){
+  body{align-items:stretch}
+  #shell{max-width:none;max-height:none;height:100vh;height:100svh;border-radius:0;box-shadow:none}
+  .statusbar{display:none}
+  #app{width:100%;max-width:860px;margin:0 auto}
+}
+
 /* ---------- status + app bars ---------- */
 .statusbar{height:30px;flex:none;display:flex;align-items:center;justify-content:space-between;
   padding:0 18px;font-size:11.5px;font-weight:700;background:#fff}
