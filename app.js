@@ -2623,6 +2623,57 @@
 
   /* ---------------- team views --------------------------------------- */
 
+  V.teamadd = () => {
+    const t = teamState();
+    if (myRole() !== 'owner' || !t.company) { go('team'); return ''; }
+    const s = TEAM.seats();
+    const waiting = t.invites.filter(i => i.status === 'waiting');
+    const stepShare = waiting.length ? waiting[waiting.length - 1] : null;
+    const full = s.paid && s.used >= s.paid;
+    return `
+      <div class="pad">
+        <div class="card"><div class="cb">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--muted)">ADD A TECHNICIAN · ${esc(t.company.name)}</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:6px">
+            An invite is a small file. You send it to your technician on WhatsApp,
+            they open it in their REHOTEQ Field, and they appear on your dashboard.</div>
+        </div></div>
+        <div class="card" style="margin-top:12px"><div class="cb">
+          <div style="font-size:11px;font-weight:800;color:#0E7C5A">STEP 1 · CREATE THE INVITE</div>
+          ${stepShare ? `
+            <div style="text-align:center;margin:10px 0 2px">
+              <div style="font-size:10px;color:var(--muted);letter-spacing:.06em">INVITE CODE</div>
+              <div class="mono" style="font-size:24px;font-weight:800;letter-spacing:.08em;color:var(--ink)">${esc(stepShare.code)}</div>
+            </div>`
+          : `
+            <div style="font-size:12px;color:var(--muted);margin:6px 0 9px">One tap. Seats left: ${Math.max(0, s.paid - s.used)}.</div>
+            <button class="btn primary sm" style="width:100%" onclick="ACT.makeInvite()" ${full ? 'disabled' : ''}>
+              ${ICON('user-plus', 15)} Create the invite</button>
+            ${full ? '<div class="hintline" style="margin-top:8px">All seats are used — add seats first.</div>' : ''}`}
+        </div></div>
+        ${stepShare ? `
+        <div class="card" style="margin-top:12px"><div class="cb">
+          <div style="font-size:11px;font-weight:800;color:#0E7C5A">STEP 2 · SEND IT ON WHATSAPP</div>
+          <div style="font-size:12px;color:var(--muted);margin:6px 0 9px">Tap below, choose their chat, and send. The file carries the invite code automatically.</div>
+          <button class="btn primary sm" style="width:100%" onclick="ACT.resendInvite('${esc(stepShare.code)}')">
+            ${ICON('send', 15)} Send the invite file</button>
+        </div></div>
+        <div class="card" style="margin-top:12px"><div class="cb">
+          <div style="font-size:11px;font-weight:800;color:#0E7C5A">STEP 3 · WHAT THEY DO</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.8;margin-top:6px">
+            1. Open REHOTEQ Field on their phone.<br>
+            2. Team tab, then <b>Import file from WhatsApp</b>, then pick the file you sent.<br>
+            3. Tap <b>Send acceptance</b> and choose your chat.<br>
+            4. Import the acceptance the same way on your side, and they appear here.</div>
+          <div class="hintline" style="margin-top:9px">Their acceptance also arrives as a file: tap Import file from WhatsApp on your dashboard when it lands.</div>
+        </div></div>` : ''}
+        <div class="banner b-ok" style="margin-top:12px;text-align:left;line-height:1.6">
+          Also available: a Business account can create <b>worker logins</b> — ready-made
+          accounts for workers who never create their own profile. Same kind of file;
+          on their phone it is Log in / Worker, then enter the RQ code.</div>
+      </div>`;
+  };
+
   V.team = () => {
     const t = teamState();
     const role = myRole();
@@ -2654,19 +2705,17 @@
               (t.seats.selfDeclared ? ' · extra seats self-declared' : '') + `</div></div>
           </div>
         </div></div>
-        <div class="btnrow">
-          <button class="btn primary sm" style="flex:1" onclick="ACT.makeInvite()">${ICON('user-plus', 15)} Invite</button>
-          <button class="btn ghost sm" style="flex:1" onclick="ACT.go('company')">${ICON('briefcase', 15)} Stamp</button>
-        </div>
+        <button class="btn primary sm" style="width:100%" onclick="ACT.go('teamadd')">${ICON('user-plus', 15)} Add a technician</button>
         <div class="btnrow" style="margin-top:9px">
-          <button class="btn ghost sm" style="flex:1" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Receive file</button>
+          <button class="btn ghost sm" style="flex:1" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Import file from WhatsApp</button>
+          <button class="btn ghost sm" style="flex:1" onclick="ACT.go('company')">${ICON('briefcase', 15)} Stamp</button>
           <button class="btn ghost sm" style="flex:1" onclick="ACT.buySeats()">${ICON('plus', 15)} Seats</button>
         </div>
         <div class="card" style="margin-top:12px">
           <div class="ch">Worker logins · ${Math.min(workerSlots.size, biz.seats)} of ${biz.seats}</div>
           <div class="cb">
             <div style="font-size:11.5px;color:var(--muted);line-height:1.55;margin-bottom:9px">
-              Create a code and send its login file to a worker. They import the file under Log in / Worker, then enter the RQ code.
+              For a worker who will not create their own profile (Business plan). Create the code, send the login file; on their phone: Log in / Worker, Import worker file, then enter the code.
             </div>
             ${businessPlan ? '' : '<div class="hintline" style="margin:0 0 9px">Switch this company account to Business to create worker logins.</div>'}
             <div class="field"><label class="fl">Worker name (optional)</label>
@@ -2719,8 +2768,9 @@
               </div>` : ''}
           </div>`;
         }).join('') : `<div class="empty"><div class="ei">${ICON('users', 26)}</div><div class="et">No technicians yet</div>
-           <div class="ed">Tap Invite — the invite travels as a file over WhatsApp, and their
-           acceptance comes back the same way.</div></div>`}
+           <div class="ed">Add your first technician — the invite goes to them on WhatsApp,
+           and they appear here once they accept.</div>
+           <button class="btn primary sm" style="margin-top:10px" onclick="ACT.go('teamadd')">${ICON('user-plus', 15)} Add a technician</button></div>`}
         ${waiting.length ? `<div class="sec">Invites waiting (${waiting.length})</div>` + waiting.map(i => `
           <div class="card"><div class="rowitem">
             <div style="flex:1">
@@ -2731,9 +2781,10 @@
             <button class="btn ghost sm" style="width:auto;padding:9px 12px;color:#DC2626" onclick="ACT.revokeInvite('${i.code}')">Revoke</button>
           </div></div>`).join('') : ''}
         <div class="banner b-ok" style="text-align:left;line-height:1.6">
-          <b>How crews work before the server lands.</b> Jobs, invites and updates travel as
-          files over WhatsApp — nothing arrives by itself. Your stamp prints on every PDF
-          your crew sends, and every update they send back lands on this dashboard.</div>
+          <b>How it works today.</b> Invites, jobs and updates travel as small files over
+          WhatsApp, so nothing arrives by itself: you send, they send back. Your company
+          stamp prints on every PDF your crew sends, and every update they send back lands
+          on this dashboard.</div>
       </div>`;
   }
 
@@ -2752,7 +2803,7 @@
         ${!m.sent ? `<button class="btn primary sm" onclick="ACT.sendAcceptance()">${ICON('send', 15)} Send acceptance to your oga</button>
           <div class="hintline" style="margin:7px 0 11px">They cannot see you on their dashboard until it arrives.</div>` : ''}
         <div class="btnrow">
-          <button class="btn ghost sm" style="flex:1" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Receive file</button>
+          <button class="btn ghost sm" style="flex:1" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Import file from WhatsApp</button>
           <button class="btn ghost sm" style="flex:1;color:#DC2626" onclick="ACT.leaveTeam()">Leave crew</button>
         </div>
         <div class="sec">My assigned jobs (${mine.length})</div>
@@ -2780,7 +2831,7 @@
           <div class="ed">Owners stamp every PDF their technicians send, assign jobs with
           instructions pinned, and watch progress land on a dashboard.</div></div>
         <button class="btn primary sm" onclick="ACT.createCompany()">${ICON('briefcase', 15)} Start a company</button>
-        <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Join with an invite file</button>
+        <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Join a company (import the invite they sent)</button>
         <div class="banner b-ok" style="margin-top:14px;text-align:left;line-height:1.6">
           Pilot: teams are free while we test. Business is ${money(DATA.PLANS.business.price)} / month
           for ${DATA.PLANS.business.seats} seats — extra seats ${money(DATA.PLANS.business.extraSeat)} / month each.</div>
@@ -2979,7 +3030,7 @@
       jobcard: S.job ? S.job.ref : 'Job card', checklist: 'Checklist',
       photos: 'Job evidence', signoff: 'Sign-off', report: 'Service report',
       quote: 'Quotation', jobs: 'My jobs', settings: 'Settings', passport: 'Solar passport',
-      team: 'My team', teamjob: S.job ? S.job.ref : 'Crew job', company: 'Company stamp'
+      team: 'My team', teamadd: 'Add a technician', teamjob: S.job ? S.job.ref : 'Crew job', company: 'Company stamp'
     };
     let bar = '';
     if (v !== 'boot' && v !== 'home' && v !== 'welcome') {
@@ -3906,7 +3957,7 @@
     async makeInvite() {
       const r = await TEAM.makeInvite();
       if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
-      render();
+      ACT.go('teamadd');
       await shareTeamFile(r.file, 'rehoteq-invite-' + r.invite.code + '.json',
         'Invite sent — code ' + r.invite.code);
       render();

@@ -159,8 +159,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v31'/.test(swSrc),
-    'the service-worker cache is bumped to v31 for the release');
+  ok(/const CACHE = 'rehoteq-field-v32'/.test(swSrc),
+    'the service-worker cache is bumped to v32 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -1915,6 +1915,12 @@ async function suiteAccountsQuota(w) {
     const wCss = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
     ok(wCss.indexOf('data:font/woff2') !== -1 && wCss.indexOf("'Space Grotesk'") !== -1,
       'the splash carries its Space Grotesk display font, embedded and offline-safe');
+    ok(/teamadd: 'Add a technician'/.test(wApp),
+      'the Add-a-technician screen has a nav title');
+    ok(/V\.teamadd = /.test(wApp),
+      'the Add-a-technician wizard exists with its step cards');
+    ok(/Import file from WhatsApp/.test(wApp),
+      'importing a crew file is called what it is, not Receive file');
     ok(wApp.indexOf('R_MARK_SRC') !== -1 && wApp.indexOf('data:image/png') !== -1,
       'the welcome screen carries the real R mark, embedded');
     ok(/w-mark-glow/.test(wApp), 'the R mark carries an animated glow ring');
