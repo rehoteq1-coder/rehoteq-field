@@ -1635,7 +1635,7 @@
             <button class="btn solid-w" onclick="ACT.signIn()">${ICON('log-in', 17)} Get started free</button>
             <button class="btn outline-w" onclick="ACT.enterApp()">Try it first, no account</button>
             <button class="w-link" onclick="ACT.signIn()">Already have an account? Sign in</button>
-            <div class="w-fine">Every new account starts a 14-day Pro trial.<br>Pro ${money(DATA.PLANS.pro.price)}/month after · your work stays on this phone either way.</div>
+            <div class="w-fine">Every new account starts a 14-day Pro trial.<br>Pro ${money(DATA.PLANS.pro.price)}/month after · your work stays on this device either way.</div>
           </div>
         </div>
       </div>
@@ -2970,6 +2970,8 @@
 
   /* ---------------- render ------------------------------------------- */
   function render() {
+    const shellEl = document.getElementById('shell');
+    if (shellEl) shellEl.classList.toggle('w-open', S.view === 'welcome');
     const v = S.view;
     const titles = {
       home: null, actions: tradeName(S.trade), library: 'Troubleshooting',

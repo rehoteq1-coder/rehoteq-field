@@ -24,6 +24,9 @@ body{
   box-shadow:0 0 60px rgba(0,0,0,.5);
 }
 @media(min-width:480px){ #shell{border-radius:26px;height:96vh} }
+/* The welcome screen is a marketing page: on a desktop it leaves the
+   phone shell and fills the whole browser, like any real product site. */
+#shell.w-open{max-width:none;max-height:none;height:100svh;border-radius:0;box-shadow:none}
 
 /* ---------- status + app bars ---------- */
 .statusbar{height:30px;flex:none;display:flex;align-items:center;justify-content:space-between;
@@ -373,8 +376,8 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 
 /* --- welcome splash: the first screen a brand-new visitor sees ------- */
 .welcome{position:relative;min-height:100svh;background:#06281D;color:#fff;
-  display:flex;align-items:center;justify-content:center;
-  padding:40px 22px;text-align:center;overflow:hidden}
+  display:flex;overflow-y:auto;overflow-x:hidden;
+  padding:40px 22px;text-align:center}
 .welcome .w-bg{position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(160deg,#07352A 0%,#06281D 45%,#0A4A36 100%)}
 .welcome .w-grid{position:absolute;inset:-2px;opacity:.5;
@@ -393,13 +396,15 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 @keyframes wOrbA{from{transform:translate(0,0) scale(1)}to{transform:translate(-60px,50px) scale(1.12)}}
 @keyframes wOrbB{from{transform:translate(0,0) scale(1)}to{transform:translate(70px,-40px) scale(1.08)}}
 .welcome .w-wrap{position:relative;z-index:1;width:100%;max-width:400px;
-  display:flex;flex-direction:column}
+  margin:auto;display:flex;flex-direction:column}
 .welcome .w-hero{display:flex;flex-direction:column;align-items:center}
 .welcome .w-mark{position:relative;width:150px;height:150px;margin:0 auto;
   display:grid;place-items:center}
-.welcome .w-mark-glow{position:absolute;inset:-8px;border-radius:50%;
+.welcome .w-mark-glow{position:absolute;inset:-12px;border-radius:50%;
   background:conic-gradient(from 0deg,#22D3EE,#A3E635 25%,transparent 45%,transparent 55%,#F59E0B 75%,#22D3EE 100%);
-  filter:blur(10px);opacity:.5;animation:wSpin 16s linear infinite}
+  filter:blur(7px);opacity:.45;animation:wSpin 16s linear infinite;
+  -webkit-mask-image:radial-gradient(closest-side,transparent 54%,#000 62%,#000 78%,transparent 86%);
+  mask-image:radial-gradient(closest-side,transparent 54%,#000 62%,#000 78%,transparent 86%)}
 .welcome .w-mark img{width:126px;height:auto;object-fit:contain;
   animation:wFloat 6s ease-in-out infinite,wGlow 4.5s ease-in-out infinite}
 @keyframes wSpin{to{transform:rotate(360deg)}}
