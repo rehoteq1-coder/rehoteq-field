@@ -1913,8 +1913,8 @@ async function suiteAccountsQuota(w) {
   async function suiteWelcomeTrial() {
     const wApp = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
     const wCss = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
-    ok(wApp.indexOf('icon-r-mark.png') !== -1,
-      'the welcome screen shows the real R mark from the app icons');
+    ok(wApp.indexOf('R_MARK_SRC') !== -1 && wApp.indexOf('data:image/png') !== -1,
+      'the welcome screen carries the real R mark, embedded');
     ok(/w-mark-glow/.test(wApp), 'the R mark carries an animated glow ring');
     ok(wCss.indexOf('@media (min-width:900px)') !== -1,
       'the welcome screen has a desktop layout');

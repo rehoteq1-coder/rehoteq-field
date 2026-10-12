@@ -9,3 +9,5 @@ image-search/
 
 # Cloud Functions dependencies (installed locally, never committed)
 functions/node_modules/
+outputs/icon-mark-preview.png
+icon-r-mark.png
