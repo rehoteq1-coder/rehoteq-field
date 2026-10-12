@@ -143,6 +143,15 @@
       });
     },
 
+    // The entitlement record (users/{uid}) written by Cloud Functions.
+    // Resolves null rather than throwing when Firebase is off or offline.
+    profile: function () {
+      if (!enabled() || !state.user || !state.db) return Promise.resolve(null);
+      return state.mods.fs.getDoc(state.mods.fs.doc(state.db, 'users', state.user.uid))
+        .then(function (snap) { return (snap && snap.exists()) ? snap.data() : null; })
+        .catch(function () { return null; });
+    },
+
     db: function () { return state.db; }
   };
 })(window);

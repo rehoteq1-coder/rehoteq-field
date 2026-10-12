@@ -117,7 +117,7 @@
       if (!job || !job.id) return false;
       const ledger = await loadUsageLedger();
       if (job.isDemo || job.companyId || companyJob(job)) return true;
-      if (isOwnerAccount() || ((S.user && S.user.plan) || 'free') !== 'free') return true;
+      if (hasProAccess()) return true;
       const reportId = String(job.id);
       if (ledger.reportIds.includes(reportId)) return true;
       if (ledger.used >= MAX_FREE_REPORTS) return false;
@@ -166,6 +166,24 @@
     return Boolean(fbU && isOwnerEmail(fbU.email));
   }
 
+  /* An unexpired 14-day trial clock means Pro. The server (Cloud
+     Functions createAccount) is the only writer of the clock; the
+     device can only read it. */
+  function trialActive(u) {
+    const user = u !== undefined ? u : S.user;
+    if (!user || !user.trialEndsAt) return false;
+    const t = new Date(user.trialEndsAt);
+    return !isNaN(t.getTime()) && t.getTime() > Date.now();
+  }
+
+  /* One entitlement test for the whole app: an owner, a paid plan, or a
+     running trial. Nothing else decides who gets Pro features. */
+  function hasProAccess(u) {
+    const user = u !== undefined ? u : S.user;
+    if (isOwnerAccount(user)) return true;
+    return ((user && user.plan) || 'free') !== 'free' || trialActive(user);
+  }
+
   /* ---------------- account ----------------------------------------
      Sign-in exists only to answer three questions the device cannot
      answer for itself: are you actually Pro, when does your trial end,
@@ -185,6 +203,7 @@
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;font-size:13.5px">${esc(u.name || 'Signed in')}</div>
               <div style="font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis">${esc(u.email)}</div>
+              <div style="font-size:11px;font-weight:700;color:var(--primary);margin-top:2px">${planLine()}</div>
             </div>
           </div>
           <div class="srow" onclick="ACT.signOut()"><span class="si">${ICON('log-out', 17)}</span>
@@ -219,6 +238,12 @@
     if (!iso) return '—';
     const d = new Date(iso); if (isNaN(d)) return '—';
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  function planLine() {
+    if (isOwnerAccount()) return 'Owner access · all plans unlocked';
+    if (trialActive()) return 'Pro trial · ends ' + dstr(S.user && S.user.trialEndsAt);
+    if (((S.user && S.user.plan) || 'free') !== 'free') return 'Pro';
+    return 'Free plan';
   }
   function tstr(iso) {
     if (!iso) return '';
@@ -1565,6 +1590,34 @@
       ${window.FB && window.FB.enabled() ? `<button class="btn ghost sm" onclick="ACT.signIn()">${ICON('log-in', 15)} Sign in with Google</button>` : ''}`;
   }
 
+  /* ---------------- welcome splash ------------------------------------
+     The first screen a brand-new visitor sees, ALAT-style: who it is for,
+     what it promises, and one honest way in. Shown once; the device
+     remembers it. Try-it-first is a real path, not a dark pattern.
+     -------------------------------------------------------------------- */
+  V.welcome = () => `
+    <div class="welcome">
+      <div class="w-mark">R</div>
+      <div class="w-name">REHOTEQ <em>Field</em></div>
+      <div class="w-tag">Diagnose it. Prove it. Get paid.</div>
+      <div class="w-lead">
+        Turn every site visit into tamper-evident photo proof, a signed PDF
+        service report and a QR equipment passport your customer can verify
+        on WhatsApp. Everything works offline, account or not.
+      </div>
+      <div class="w-metrics">
+        <div><b>${DATA.TRADES.length}</b>Trades</div>
+        <div><b>${DATA.LIBRARY.length}</b>Guides + AI</div>
+        <div><b>PDF + QR</b>Stamped proof</div>
+      </div>
+      <div class="w-actions">
+        <button class="btn solid-w" onclick="ACT.signIn()">${ICON('log-in', 17)} Get started free</button>
+        <button class="btn outline-w" onclick="ACT.enterApp()">Try it first, no account</button>
+        <button class="w-link" onclick="ACT.signIn()">Already have an account? Sign in</button>
+        <div class="w-fine">Every new account starts a 14-day Pro trial.<br>Pro ${money(DATA.PLANS.pro.price)}/month after · your work stays on this phone either way.</div>
+      </div>
+    </div>`;
+
   V.boot = () => {
     const u = S.user || S.draftProfile || {};
     const isEditing = Boolean(S.user && S.user.name);
@@ -2904,7 +2957,7 @@
       team: 'My team', teamjob: S.job ? S.job.ref : 'Crew job', company: 'Company stamp'
     };
     let bar = '';
-    if (v !== 'boot' && v !== 'home') {
+    if (v !== 'boot' && v !== 'home' && v !== 'welcome') {
       const showBack = !['jobs', 'settings'].includes(v);
       bar = `<div class="appbar"><div class="row">
         ${showBack ? `<button class="back" onclick="ACT.back()">‹</button>` : '<div class="spacer"></div>'}
@@ -2930,7 +2983,7 @@
         </div></div>`;
     }
     const hasTab = ['home', 'jobs', 'settings'].includes(v);
-    const body = v === 'report' ? V.report() : `<div class="scroll">${(V[v] || V.home)()}</div>`;
+    const body = v === 'welcome' ? V.welcome() : (v === 'report' ? V.report() : `<div class="scroll">${(V[v] || V.home)()}</div>`);
     app().innerHTML = bar + body +
       (hasTab ? `<div class="tabbar">
         <button class="tab ${v === 'home' ? 'on' : ''}" onclick="ACT.go('home')"><span class="ti">${ICON('house', 20)}</span>Home</button>
@@ -3498,11 +3551,16 @@
       if (!window.FB || !window.FB.enabled()) {
         return toast('Sign-in is not switched on yet', 'Everything else works without it');
       }
+      DB.setMeta('welcomeSeen', true);
       try {
         await window.FB.signIn();
       } catch (e) {
         toast('Could not reach the sign-in page', 'Check your connection and try again');
       }
+    },
+    async enterApp() {
+      await DB.setMeta('welcomeSeen', true);
+      go(S.user ? 'home' : 'boot');
     },
     async signOut() {
       if (!window.FB) return;
@@ -4108,7 +4166,8 @@
     // technician with a white screen he cannot clear from the UI.
     const all = await DB.all('photos');
     all.forEach(p => { if (!p.url && p.blob) p.url = URL.createObjectURL(p.blob); });
-    go(S.user ? 'home' : 'boot');
+    S.welcomeSeen = await DB.getMeta('welcomeSeen');
+    go(S.user ? 'home' : (S.welcomeSeen ? 'boot' : 'welcome'));
   }
 
   // Last line of defence. If boot ever throws, the technician must still get
@@ -4130,6 +4189,22 @@
   window.addEventListener('online', () => { S.online = true; render(); });
   window.addEventListener('offline', () => { S.online = false; render(); });
 
+  // The entitlement record (users/{uid}) is written by Cloud Functions
+  // and read on sign-in. A network failure here must never block the app.
+  function hydrateEntitlement() {
+    if (!window.FB || !window.FB.profile) return;
+    window.FB.profile().then(function (rec) {
+      if (!rec || !S.user) return;
+      const t = rec.trialEndsAt;
+      S.user.plan = rec.plan || S.user.plan || 'free';
+      S.user.trialEndsAt = t
+        ? (t.toDate ? t.toDate().toISOString() : new Date(t).toISOString())
+        : null;
+      DB.setMeta('user', S.user);
+      if (S.view === 'home' || S.view === 'settings') render();
+    }).catch(function () { /* offline: the app keeps working */ });
+  }
+
   // Firebase is optional and inert until config.js switches it on. When it
   // is off, none of this runs and the app is untouched by any of it.
   if (window.FB && window.FB.enabled()) {
@@ -4141,6 +4216,7 @@
           if (!S.user.plan || S.user.plan === 'free') S.user.plan = 'business';
           DB.setMeta('user', S.user);
         }
+        hydrateEntitlement();
       }
     }).catch(function () { /* no redirect pending, carry on */ });
     window.FB.onUser(function (u) {
@@ -4150,6 +4226,7 @@
         if (!S.user.plan || S.user.plan === 'free') S.user.plan = 'business';
         DB.setMeta('user', S.user);
       }
+      if (u) hydrateEntitlement();
       if (S.view === 'settings' || S.view === 'home') render();
     });
   }

@@ -159,8 +159,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v23'/.test(swSrc),
-    'the service-worker cache is bumped to v23 for the release');
+  ok(/const CACHE = 'rehoteq-field-v24'/.test(swSrc),
+    'the service-worker cache is bumped to v24 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -1910,6 +1910,21 @@ async function suiteAccountsQuota(w) {
     process.exit(1);
   }
 
+  async function suiteWelcomeTrial() {
+    const appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+    const fbSrc = fs.readFileSync(path.join(ROOT, 'firebase.js'), 'utf8');
+    ok(/V\.welcome\s*=/.test(appSrc), 'a welcome splash is the first screen for brand-new visitors');
+    ok(/ACT\.enterApp\(\)/.test(appSrc), 'Try-it-first is a real action, not a dark pattern');
+    ok(/welcomeSeen/.test(appSrc), 'the splash shows once and the device remembers it');
+    ok(/function hasProAccess\(/.test(appSrc), 'one shared entitlement test governs Pro access');
+    ok(/if \(hasProAccess\(\)\) return true;/.test(appSrc), 'the report gate uses the shared entitlement test');
+    ok(/function trialActive\(/.test(appSrc), 'an unexpired 14-day trial clock grants Pro access');
+    ok(/Pro trial · ends /.test(appSrc), 'the account card shows the trial and its end date');
+    ok(/Owner access · all plans unlocked/.test(appSrc), 'the account card shows owner entitlement');
+    ok(/profile:\s*function/.test(fbSrc), 'the app reads the server-written entitlement record');
+    ok(/hydrateEntitlement\(\)/.test(appSrc), 'sign-in hydrates the trial clock from the server record');
+  }
+
   await suiteSurface(w);
   await suiteIcons(w);
   suiteWiring(w);
@@ -1920,6 +1935,7 @@ async function suiteAccountsQuota(w) {
   await suiteTaps(w);
   suiteRules();
   await suiteFirebase(w);
+  await suiteWelcomeTrial(w);
   await suiteTeam(w);
   await suiteAi(w);
   await suiteLandingAndOwner(w);
