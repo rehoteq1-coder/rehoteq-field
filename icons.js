@@ -116,10 +116,17 @@
         '" height="' + (size || 20) + '" viewBox="0 0 24 24" aria-hidden="true">' +
         '<circle cx="12" cy="12" r="2" fill="currentColor"/></svg>';
     }
-    return '<svg class="icon ' + (cls || '') + '" width="' + (size || 20) +
-      '" height="' + (size || 20) + '" viewBox="0 0 24 24" fill="none" ' +
-      'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
-      'stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+    // The ICONS entries each carry their own complete <svg> opening tag
+    // (fill, stroke, currentColor) but no closing tag. Wrapping that inside
+    // a second <svg> left the outer one open, and the browser silently
+    // swallowed any text that followed as ignored SVG content: an icon-only
+    // button with no label. Reuse the entry's own tag instead.
+    return body
+      .replace(/class="lucide lucide-[^"]*"/,
+        'class="icon ' + (cls || '') + '" aria-hidden="true"')
+      .replace(/width="24"/, 'width="' + (size || 20) + '"')
+      .replace(/height="24"/, 'height="' + (size || 20) + '"')
+      + '</svg>';
   }
 
   global.ICONS = ICONS;

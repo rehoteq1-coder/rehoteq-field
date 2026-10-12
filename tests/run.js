@@ -159,8 +159,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v24'/.test(swSrc),
-    'the service-worker cache is bumped to v24 for the release');
+  ok(/const CACHE = 'rehoteq-field-v25'/.test(swSrc),
+    'the service-worker cache is bumped to v25 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -1911,6 +1911,12 @@ async function suiteAccountsQuota(w) {
   }
 
   async function suiteWelcomeTrial() {
+    const icons = require(path.join(ROOT, 'icons.js'));
+    const zap = icons.ICON('zap', 18);
+    eq((zap.match(/<svg/g) || []).length, 1, 'ICON emits exactly one opening svg tag');
+    eq((zap.match(/<\/svg>/g) || []).length, 1, 'ICON emits exactly one closing svg tag');
+    ok(zap.indexOf('width="18"') !== -1, 'ICON applies the requested size');
+    ok(/class="icon[ "]/.test(zap), 'ICON keeps the icon class for tinting');
     const appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
     const fbSrc = fs.readFileSync(path.join(ROOT, 'firebase.js'), 'utf8');
     ok(/V\.welcome\s*=/.test(appSrc), 'a welcome splash is the first screen for brand-new visitors');

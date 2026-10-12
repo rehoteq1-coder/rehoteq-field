@@ -1610,6 +1610,12 @@
         <div><b>${DATA.LIBRARY.length}</b>Guides + AI</div>
         <div><b>PDF + QR</b>Stamped proof</div>
       </div>
+      <div class="w-card">
+        <div class="w-eyebrow">What your customer receives</div>
+        <b>Stamped A4 service report &amp; quotation</b>
+        <p>GPS-stamped photos, dual signatures and a QR passport for every installation, locked by a SHA-256 hash chain.</p>
+        <div class="w-pills"><span>Signed PDF</span><span>QR passport</span><span>RF-2026-00184</span></div>
+      </div>
       <div class="w-actions">
         <button class="btn solid-w" onclick="ACT.signIn()">${ICON('log-in', 17)} Get started free</button>
         <button class="btn outline-w" onclick="ACT.enterApp()">Try it first, no account</button>
