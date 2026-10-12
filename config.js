@@ -100,7 +100,7 @@
       // Flipped on once the SDK loader and rules are both in place. Until
       // then the app never fetches Firebase at all, and stays fully
       // offline-native with no account.
-      enabled: false,
+      enabled: true,
       apiKey: 'AIzaSyApTJ1tHCUoaFfdPiq2j7j79qOOserw9vY',
       authDomain: 'rehoteq-field.firebaseapp.com',
       projectId: 'rehoteq-field',

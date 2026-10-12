@@ -159,8 +159,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v22'/.test(swSrc),
-    'the service-worker cache is bumped to v22 for the release');
+  ok(/const CACHE = 'rehoteq-field-v23'/.test(swSrc),
+    'the service-worker cache is bumped to v23 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -833,8 +833,8 @@ function suiteRules() {
   ok(!/BEGIN PRIVATE KEY/.test(cfg), 'config.js holds no service-account private key');
   ok(!/service_account/.test(cfg), 'config.js holds no service-account credentials');
   ok(/firebase:\s*\{/.test(cfg), 'config.js carries the public Firebase web config');
-  ok(/enabled:\s*false/.test(cfg),
-    'Firebase is wired but not yet switched on, so the app stays offline-native');
+  ok(/enabled:\s*true/.test(cfg),
+    'Firebase is switched on — accounts, trial and entitlement are live; the app still works offline with no account');
 }
 
 /* =====================================================================
@@ -861,13 +861,13 @@ async function suiteFirebase(w) {
   ok(/gstatic[\s\S]{0,120}firebasejs/.test(sw),
     'but it IS cached on first use, so sign-in works offline afterwards');
 
-  // Off until we say otherwise.
-  ok(/enabled:\s*false/.test(cfg), 'config.js has Firebase switched off');
-  eq(w.CONFIG.firebase.enabled, false, 'CONFIG.firebase.enabled is false');
+  // Switched on as of v1.4.2 — the deliberate act.
+  ok(/enabled:\s*true/.test(cfg), 'config.js has Firebase switched on');
+  eq(w.CONFIG.firebase.enabled, true, 'CONFIG.firebase.enabled is true');
   ok(typeof w.FB === 'object', 'FB is exposed to the page');
-  eq(w.FB.enabled(), false, 'FB.enabled() is false, so the layer is inert');
+  eq(w.FB.enabled(), true, 'FB.enabled() is true, so the layer is live');
   eq(await w.FB.ready(), false, 'FB.ready() resolves false rather than throwing');
-  eq(w.FB.user(), null, 'with Firebase off there is no signed-in user');
+  eq(w.FB.user(), null, 'with Firebase not yet loaded there is no signed-in user');
 
   // The switch must be the only thing standing between the app and the
   // cloud: flipping it on for real is a deliberate act, not a side effect.
