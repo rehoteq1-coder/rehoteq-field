@@ -27,6 +27,7 @@ body{
 /* The welcome screen is a marketing page: on a desktop it leaves the
    phone shell and fills the whole browser, like any real product site. */
 #shell.w-open{max-width:none;max-height:none;height:100svh;border-radius:0;box-shadow:none}
+#shell.w-open .statusbar{display:none}
 
 /* ---------- status + app bars ---------- */
 .statusbar{height:30px;flex:none;display:flex;align-items:center;justify-content:space-between;
@@ -400,12 +401,13 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .welcome .w-hero{display:flex;flex-direction:column;align-items:center}
 .welcome .w-mark{position:relative;width:150px;height:150px;margin:0 auto;
   display:grid;place-items:center}
-.welcome .w-mark-glow{position:absolute;inset:-12px;border-radius:50%;
-  background:conic-gradient(from 0deg,#22D3EE,#A3E635 25%,transparent 45%,transparent 55%,#F59E0B 75%,#22D3EE 100%);
-  filter:blur(7px);opacity:.45;animation:wSpin 16s linear infinite;
-  -webkit-mask-image:radial-gradient(closest-side,transparent 54%,#000 62%,#000 78%,transparent 86%);
-  mask-image:radial-gradient(closest-side,transparent 54%,#000 62%,#000 78%,transparent 86%)}
-.welcome .w-mark img{width:126px;height:auto;object-fit:contain;
+.welcome .w-mark-glow{position:absolute;inset:-26px;border-radius:50%;
+  background:radial-gradient(circle at 66% 28%,rgba(34,211,238,.5),transparent 55%),
+    radial-gradient(circle at 26% 74%,rgba(163,230,53,.45),transparent 55%),
+    radial-gradient(circle at 50% 50%,rgba(8,80,58,.7),transparent 72%);
+  filter:blur(16px);animation:wPulse 5s ease-in-out infinite}
+@keyframes wPulse{0%,100%{opacity:.5}50%{opacity:.9}}
+.welcome .w-mark img{width:150px;height:auto;object-fit:contain;
   animation:wFloat 6s ease-in-out infinite,wGlow 4.5s ease-in-out infinite}
 @keyframes wSpin{to{transform:rotate(360deg)}}
 @keyframes wFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
