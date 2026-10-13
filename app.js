@@ -2490,7 +2490,7 @@
           <div class="srow"><span class="si">${ICON('star', 17)}</span>
             <span class="sl">Plan<br><span style="font-size:11px;color:var(--muted);font-weight:500">
               ${owner ? 'Owner · all plans unlocked (' + esc(plan) + ')' : plan === 'business' ? 'Business · 5 seats & unlimited' : plan === 'free' ? 'Free · 3 reports on this device' : 'Pro · unlimited'}</span></span>
-            <button class="switch ${plan !== 'free' ? 'on' : ''}" onclick="ACT.togglePlan(this)"></button></div>
+            ${owner ? `<button class="switch ${plan !== 'free' ? 'on' : ''}" onclick="ACT.togglePlan(this)"></button>` : ''}</div>
           <div class="srow" onclick="ACT.goPlan()"><span class="si">${ICON('credit-card', 17)}</span>
             <span class="sl">Plans &amp; pricing</span><span style="color:#94A3B8">›</span></div>
         </div>
@@ -2548,7 +2548,7 @@
             <span class="sl" style="color:#DC2626">Delete everything on this device</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.7">
-          REHOTEQ Field v1.8.0 · PWA<br>Built for the people holding the phone.
+          REHOTEQ Field v1.8.1 · PWA<br>Built for the people holding the phone.
         </div>
       </div>`;
   };
@@ -3665,6 +3665,7 @@
     },
 
     togglePlan(el) {
+      if (!isOwnerAccount(S.user, S.fbUser)) { toast('Owner only', 'Plan switching stays with the account owner'); return; }
       S.user.plan = S.user.plan === 'free' ? 'pro' : 'free';
       el.classList.toggle('on', S.user.plan !== 'free');
       DB.setMeta('user', S.user);

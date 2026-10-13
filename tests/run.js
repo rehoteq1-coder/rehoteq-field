@@ -137,7 +137,7 @@ async function suiteSurface(w) {
   eq(Object.values(w.DATA.JOB_TYPES).flat().length, 50, 'the job-type catalog has exactly 50 entries');
   eq(Object.keys(w.DATA.CHECKLISTS).length, 16, 'the checklist catalog has exactly 16 entries');
   eq(w.DATA.LIBRARY.length, 18, 'the troubleshooting library has exactly 18 guides');
-  eq(require(path.join(ROOT, 'package.json')).version, '1.8.0', 'package metadata is version 1.8.0');
+  eq(require(path.join(ROOT, 'package.json')).version, '1.8.1', 'package metadata is version 1.8.1');
 }
 
 /* =====================================================================
@@ -159,8 +159,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v34'/.test(swSrc),
-    'the service-worker cache is bumped to v33 for the release');
+  ok(/const CACHE = 'rehoteq-field-v35'/.test(swSrc),
+    'the service-worker cache is bumped to v35 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -2002,7 +2002,7 @@ async function suiteAccountsQuota(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v34'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v35'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
