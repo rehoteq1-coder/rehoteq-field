@@ -128,8 +128,13 @@
   }
 
   function load() {
-    FB.listUsers().then(render).catch(function () {
-      $('deniedEmail').textContent = FB.user() ? FB.user().email : '';
+    FB.listUsers().then(render).catch(function (err) {
+      // TEMP DEBUG: surface the real Firestore error instead of swallowing it.
+      var code = err && err.code ? String(err.code) : '';
+      var msg = err && err.message ? String(err.message) : '';
+      try { console.error('listUsers failed:', code, msg, err); } catch (e) {}
+      var who = FB.user() ? FB.user().email : '';
+      $('deniedEmail').textContent = who + (code || msg ? ' [debug: ' + (code || msg) + ']' : '');
       show('denied');
     });
     loadFeedback();
