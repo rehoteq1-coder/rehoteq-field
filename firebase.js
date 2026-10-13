@@ -152,6 +152,38 @@
         .catch(function () { return null; });
     },
 
+    // ---- admin surface (Field HQ) -------------------------------------
+    // Marks the signed-in user's own record as active. lastActive is not
+    // an entitlement field, so the rules allow the client to write it, and
+    // only to their own record. Silent by design: a failed write must
+    // never disturb sign-in or the app itself.
+    touchLastActive: function () {
+      if (!enabled() || !state.user || !state.db) return Promise.resolve();
+      var fs = state.mods.fs;
+      return fs.setDoc(fs.doc(state.db, 'users', state.user.uid),
+        { lastActive: fs.serverTimestamp() }, { merge: true })
+        .catch(function () { /* offline is fine, next open retries */ });
+    },
+
+    // Owner-only read of every account record for the admin page. Returns
+    // [] when Firebase is off or signed out; THROWS on permission-denied
+    // so the admin page can tell "not an owner account" from "no data".
+    listUsers: function () {
+      if (!enabled() || !state.db) return Promise.resolve([]);
+      var fs = state.mods.fs;
+      return fs.getDocs(fs.query(fs.collection(state.db, 'users'),
+        fs.orderBy('createdAt', 'desc'), fs.limit(500)))
+        .then(function (snap) {
+          var out = [];
+          snap.forEach(function (d) {
+            var v = d.data();
+            v.uid = d.id;
+            out.push(v);
+          });
+          return out;
+        });
+    },
+
     db: function () { return state.db; }
   };
 })(window);

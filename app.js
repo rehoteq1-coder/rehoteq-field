@@ -4303,6 +4303,7 @@
         DB.setMeta('user', S.user);
       }
       if (u) hydrateEntitlement();
+      if (u) FB.touchLastActive();   // Field HQ: last-active register, silent on failure
       if (S.view === 'settings' || S.view === 'home') render();
     });
   }

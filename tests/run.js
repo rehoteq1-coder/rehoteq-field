@@ -159,8 +159,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v32'/.test(swSrc),
-    'the service-worker cache is bumped to v32 for the release');
+  ok(/const CACHE = 'rehoteq-field-v33'/.test(swSrc),
+    'the service-worker cache is bumped to v33 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -1963,6 +1963,29 @@ async function suiteAccountsQuota(w) {
   await suiteAi(w);
   await suiteLandingAndOwner(w);
   await suiteAccountsQuota(w);
+
+  /* ---- suite 10: admin page (Field HQ) ------------------------------ */
+  suite = 'admin page';
+  const safe = fn => { try { return fn(); } catch (e) { return null; } };
+  const appSrc = safe(() => fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'));
+  const adminHtml = safe(() => fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8'));
+  ok(adminHtml && adminHtml.includes('admin.js'), 'admin.html loads admin.js');
+  ok(adminHtml && adminHtml.includes('Sign in with Google'), 'admin.html offers sign-in');
+  const adminJs = safe(() => fs.readFileSync(path.join(ROOT, 'admin.js'), 'utf8'));
+  ok(adminJs && adminJs.includes('FB.listUsers'), 'admin.js reads the account register');
+  ok(adminJs && adminJs.includes("show('denied')"), 'admin.js falls back to Not authorised when the query is denied');
+  const rulesSrc = safe(() => fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8'));
+  ok(rulesSrc.includes('isOwner()'), 'firestore.rules define the owner');
+  ok(/allow read: if isSelf\(uid\) \|\| isOwner\(\);/.test(rulesSrc), 'firestore.rules let the owner read the register');
+  const fbSrc = safe(() => fs.readFileSync(path.join(ROOT, 'firebase.js'), 'utf8'));
+  ok(fbSrc.includes('touchLastActive'), 'firebase.js can mark a user active');
+  ok(fbSrc.includes('listUsers'), 'firebase.js exposes the owner read');
+  ok(!fbSrc.includes('rehoteq@gmail.com'), 'firebase.js never hardcodes the owner email');
+  ok(rulesSrc.includes("rehoteq@gmail.com"), 'firestore.rules carry the owner emails (the rules ARE the gate)');
+  ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
+  const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
+  ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
+  ok(swSrc.includes('rehoteq-field-v33'), 'cache bumped so installed phones pick up the admin page');
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);
