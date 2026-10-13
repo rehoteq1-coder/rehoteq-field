@@ -53,7 +53,7 @@ jobs:
       - name: Assemble the site
         run: |
           mkdir -p _site
-          for f in index.html 404.html config.js icons.js firebase.js \
+          for f in index.html 404.html admin.html admin.js config.js icons.js firebase.js \
                    app.js data.js db.js pdf.js qr.js report.js styles.css \
                    sw.js manifest.webmanifest icon-192.png icon-512.png CNAME; do
             if [ -f "$f" ]; then
