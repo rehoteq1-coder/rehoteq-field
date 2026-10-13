@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.rehoteq.field",
+      "sha256_cert_fingerprints": [
+        "C4:6E:75:80:57:BB:DE:8F:97:AC:76:A7:49:B8:01:F4:3F:38:99:7F:E5:67:7A:7B:81:5D:36:3B:03:F6:DE:97"
+      ]
+    }
+  }
+]
