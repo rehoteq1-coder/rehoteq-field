@@ -165,6 +165,30 @@
         .catch(function () { /* offline is fine, next open retries */ });
     },
 
+    // Internal feedback box. Any signed-in user may post a note to HQ;
+    // only the owner may read them (firestore.rules /feedback).
+    sendFeedback: function (text) {
+      if (!enabled() || !state.user || !state.db) return Promise.reject(new Error('offline'));
+      var fs = state.mods.fs;
+      return fs.addDoc(fs.collection(state.db, 'feedback'), {
+        uid: state.user.uid,
+        email: state.user.email || '',
+        text: String(text || '').slice(0, 2000),
+        createdAt: fs.serverTimestamp()
+      });
+    },
+    listFeedback: function () {
+      if (!enabled() || !state.db) return Promise.resolve([]);
+      var fs = state.mods.fs;
+      return fs.getDocs(fs.query(fs.collection(state.db, 'feedback'),
+        fs.orderBy('createdAt', 'desc'), fs.limit(200)))
+        .then(function (snap) {
+          var out = [];
+          snap.forEach(function (d) { out.push(d.data()); });
+          return out;
+        });
+    },
+
     // Owner-only read of every account record for the admin page. Returns
     // [] when Firebase is off or signed out; THROWS on permission-denied
     // so the admin page can tell "not an owner account" from "no data".

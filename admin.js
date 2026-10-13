@@ -100,11 +100,39 @@
     return '<div class="stat"><b>' + n + '</b><span>' + label + '</span></div>';
   }
 
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function fmtWhen(v) {
+    try {
+      var d = v && typeof v.toDate === 'function' ? v.toDate() : (v ? new Date(v) : null);
+      return d ? d.toLocaleString() : '';
+    } catch (e) { return ''; }
+  }
+
+  function loadFeedback() {
+    FB.listFeedback().then(function (items) {
+      $('fbrows').innerHTML = items.length ? items.map(function (f) {
+        return '<tr><td><b>' + esc(f.email || 'unknown') + '</b></td>' +
+          '<td>' + esc(f.text) + '</td>' +
+          '<td class="hide-sm muted">' + esc(fmtWhen(f.createdAt)) + '</td></tr>';
+      }).join('') : '<tr><td colspan="3" class="muted">No feedback yet.</td></tr>';
+      $('fbcount').textContent = items.length ? items.length + ' message(s)' : '';
+    }).catch(function () {
+      // Offline, or the feedback rules are not deployed yet.
+      $('fbrows').innerHTML = '<tr><td colspan="3" class="muted">Could not load feedback.</td></tr>';
+    });
+  }
+
   function load() {
     FB.listUsers().then(render).catch(function () {
       $('deniedEmail').textContent = FB.user() ? FB.user().email : '';
       show('denied');
     });
+    loadFeedback();
   }
 
   function start() {

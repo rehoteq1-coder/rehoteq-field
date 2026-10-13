@@ -158,11 +158,10 @@
   }
 
   function isOwnerAccount(u, fb) {
-    const user = u !== undefined ? u : S.user;
     const fbU = fb !== undefined ? fb : S.fbUser;
-    // A profile's explicit email is authoritative. In particular, an owner
-    // must lose local owner mode immediately after changing that email.
-    if (user && String(user.email || '').trim()) return isOwnerEmail(user.email);
+    // Owner access is decided by the signed-in Google identity only. The
+    // editable profile email must never grant it: anyone could type an
+    // owner address into Edit profile and unlock every plan for free.
     return Boolean(fbU && isOwnerEmail(fbU.email));
   }
 
@@ -2532,6 +2531,10 @@
         </div>
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Support</div>
+          <div class="srow" onclick="ACT.sendFeedback()"><span class="si">${ICON('send', 17)}</span>
+            <span class="sl">Send feedback to REHOTEQ<br>
+              <span style="font-size:11px;color:var(--muted);font-weight:500">Ideas, bugs, what to build next</span></span>
+            <span style="color:#94A3B8">›</span></div>
           <div class="srow" onclick="ACT.contact()"><span class="si">${ICON('message-circle', 17)}</span>
             <span class="sl">Message REHOTEQ on WhatsApp<br>
               <span style="font-size:11px;color:var(--muted);font-weight:500">${esc(CONFIG.support.whatsappLabel)}</span></span>
@@ -2545,7 +2548,7 @@
             <span class="sl" style="color:#DC2626">Delete everything on this device</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.7">
-          REHOTEQ Field v1.4.1 · PWA<br>Built for the people holding the phone.
+          REHOTEQ Field v1.8.0 · PWA<br>Built for the people holding the phone.
         </div>
       </div>`;
   };
@@ -3107,6 +3110,10 @@
 
   /* ---------------- actions ------------------------------------------ */
   const ACT = {
+    // Test hook only: the harness cannot reach the module-scoped S, so it
+    // simulates a signed-in Google account through this setter. It mirrors
+    // exactly what firebase.js writes on a real sign-in, nothing more.
+    _fbUser(u) { S.fbUser = u; },
     go, toast,
     isOwner: () => isOwnerAccount(),
     canGenerateReport: canGenerateReport,
@@ -3263,18 +3270,13 @@
       if (pick('iBank') !== null) S.user.bank = pick('iBank');
       if (pick('iBio') !== null) S.user.bio = pick('iBio');
 
+      // Owner access follows the signed-in Google account, never this
+      // form: saving a profile email can neither grant nor keep it.
       const wasOwnerProfile = isOwnerEmail(prev.email) || Boolean(prev.ownerAccess);
-      const isOwnerProfile = isOwnerEmail(S.user.email);
-      if (isOwnerProfile) {
-        S.user.ownerAccess = true;
-        if (!wasOwnerProfile && (!prev.plan || prev.plan === 'free')) S.user.plan = 'business';
-      } else if (wasOwnerProfile) {
-        // Owner access belongs to the owner email, not to stale profile
-        // state. Changing that email returns the profile to the Free plan.
-        S.user.ownerAccess = false;
+      S.user.ownerAccess = isOwnerAccount(S.user, S.fbUser);
+      if (S.user.ownerAccess && (!prev.plan || prev.plan === 'free')) S.user.plan = 'business';
+      if (!S.user.ownerAccess && wasOwnerProfile && (!prev.plan || prev.plan === 'business')) {
         S.user.plan = 'free';
-      } else {
-        S.user.ownerAccess = false;
       }
 
       S.trade = S.user.trade;
@@ -3619,6 +3621,22 @@
 
     contact() {
       window.open(CONFIG.waUrl('Hello REHOTEQ — '), '_blank');
+    },
+    // The internal feedback box: one note straight to the feedback
+    // collection, which only the owner can read (firestore.rules).
+    async sendFeedback() {
+      const t = (window.prompt('What should we improve, fix, or build next?') || '').trim();
+      if (!t) return;
+      if (!window.FB || !FB.enabled() || !S.fbUser) {
+        toast('Sign in first', 'Feedback syncs with your account, so it needs you signed in');
+        return;
+      }
+      try {
+        await FB.sendFeedback(t);
+        toast('Thank you', 'Your feedback reached REHOTEQ HQ');
+      } catch (e) {
+        toast('Not sent', 'You seem to be offline. Try again when you have data');
+      }
     },
     // Sign-in is a redirect, so the app reloads and firebase.js calls
     // finishRedirect() on the way back in. A failure here must never

@@ -137,7 +137,7 @@ async function suiteSurface(w) {
   eq(Object.values(w.DATA.JOB_TYPES).flat().length, 50, 'the job-type catalog has exactly 50 entries');
   eq(Object.keys(w.DATA.CHECKLISTS).length, 16, 'the checklist catalog has exactly 16 entries');
   eq(w.DATA.LIBRARY.length, 18, 'the troubleshooting library has exactly 18 guides');
-  eq(require(path.join(ROOT, 'package.json')).version, '1.4.1', 'package metadata is version 1.4.1');
+  eq(require(path.join(ROOT, 'package.json')).version, '1.8.0', 'package metadata is version 1.8.0');
 }
 
 /* =====================================================================
@@ -159,7 +159,7 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v33'/.test(swSrc),
+  ok(/const CACHE = 'rehoteq-field-v34'/.test(swSrc),
     'the service-worker cache is bumped to v33 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
@@ -1722,6 +1722,9 @@ async function suiteLandingAndOwner(w) {
     'the company stamp carries the company name from onboarding');
 
   // --- Owner (rehoteq@gmail.com) gets access to all plans --------------
+  // SECURITY MODEL: owner access follows the signed-in Google account.
+  // Typing an owner email into the editable profile must never grant it,
+  // so first prove the leak is closed with nobody signed in.
   w.ACT.editProfile();
   await sleep(60);
   w.document.getElementById('iName').value = 'Toye (REHOTEQ Owner)';
@@ -1731,7 +1734,18 @@ async function suiteLandingAndOwner(w) {
   await w.ACT.saveProfile();
   await sleep(80);
 
-  eq(w.ACT.isOwner(), true, 'ACT.isOwner() is true for rehoteq@gmail.com');
+  eq(w.ACT.isOwner(), false, 'typing rehoteq@gmail.com into Edit profile no longer grants owner mode');
+  const untrusted = await w.DB.getMeta('user');
+  eq(untrusted.ownerAccess, false, 'a profile save without a signed-in owner cannot write ownerAccess');
+
+  // Signing in as the real owner is what grants it.
+  w.ACT._fbUser({ uid: 'test-owner', email: 'rehoteq@gmail.com' });
+  w.ACT.editProfile();
+  await sleep(60);
+  await w.ACT.saveProfile();
+  await sleep(80);
+
+  eq(w.ACT.isOwner(), true, 'ACT.isOwner() is true for the signed-in rehoteq@gmail.com');
   const savedOwner = await w.DB.getMeta('user');
   eq(savedOwner.ownerAccess, true, 'user record is marked with ownerAccess');
   eq(savedOwner.plan, 'business', 'rehoteq@gmail.com defaults to highest tier (business) with all plans unlocked');
@@ -1772,7 +1786,9 @@ async function suiteLandingAndOwner(w) {
 async function suiteAccountsQuota(w) {
   describe('9. Saved accounts, owner switching, and strict Free report quota');
 
-  // Changing away from the owner email must revoke the stored entitlement.
+  // Signing in as a non-owner revokes whatever the profile once claimed;
+  // owner mode follows the signed-in account, never the profile email.
+  w.ACT._fbUser({ uid: 'stranger', email: 'solo@example.com' });
   w.ACT.editProfile();
   await sleep(40);
   w.document.getElementById('iEmail').value = 'solo@example.com';
@@ -1780,9 +1796,10 @@ async function suiteAccountsQuota(w) {
   await sleep(50);
   const downgraded = await w.DB.getMeta('user');
   eq(downgraded.email, 'solo@example.com', 'the updated profile email is saved');
-  eq(downgraded.ownerAccess, false, 'changing away from the owner email clears ownerAccess');
-  eq(downgraded.plan, 'free', 'changing away from the owner email resets the plan to Free');
-  eq(w.ACT.isOwner(), false, 'the changed profile no longer has owner mode');
+  eq(downgraded.ownerAccess, false, 'a signed-in non-owner has no ownerAccess');
+  eq(downgraded.plan, 'free', 'the previously held Business plan resets to Free on downgrade');
+  eq(w.ACT.isOwner(), false, 'the signed-in non-owner has no owner mode');
+  w.ACT._fbUser(null);
 
   // Settings logout saves the account locally; the new boot tab can restore it.
   w.ACT.go('settings');
@@ -1985,7 +2002,15 @@ async function suiteAccountsQuota(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v33'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v34'), 'cache bumped so installed phones pick up the admin page');
+  ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
+    'firebase.js exposes the internal feedback box');
+  ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
+  ok(rulesSrc.includes('match /feedback/{id}'), 'firestore.rules gate the feedback collection');
+  ok(/allow create: if signedIn\(\)/.test(rulesSrc), 'any signed-in technician may send feedback');
+  ok(/allow read, update, delete: if isOwner\(\);\s*\}\s*\n\s*\/\* ---- everything else/.test(rulesSrc),
+    'only the owner may read feedback');
+  ok(adminJs.includes('FB.listFeedback'), 'Field HQ displays internal feedback');
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);

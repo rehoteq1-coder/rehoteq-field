@@ -142,6 +142,21 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    /* ---- internal feedback ------------------------------------------- */
+
+    // The in-app feedback box. Any signed-in technician may send a note
+    // to HQ; only the owner may read them. Text is capped here, not just
+    // client-side.
+    match /feedback/{id} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 2000
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'text', 'createdAt']);
+      allow read, update, delete: if isOwner();
+    }
+
     /* ---- everything else -------------------------------------------- */
 
     // Default deny. A new collection is invisible until someone writes a
