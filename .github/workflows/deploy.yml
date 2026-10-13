@@ -62,6 +62,8 @@ jobs:
               echo "::error::missing required file $f"; exit 1
             fi
           done
+          mkdir -p _site/.well-known
+          cp .well-known/assetlinks.json _site/.well-known/
           echo "Published files:"; ls -la _site
 
       - uses: actions/configure-pages@v5
