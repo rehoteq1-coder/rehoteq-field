@@ -36,8 +36,8 @@ service cloud.firestore {
     function isOwner() {
       return signedIn()
         && request.auth.token.email != null
-        && ['rehoteq@gmail.com', 'rehoteq1@gmail.com']
-             .has(request.auth.token.email.toLowerCase());
+        && (request.auth.token.email.toLowerCase() == 'rehoteq@gmail.com'
+            || request.auth.token.email.toLowerCase() == 'rehoteq1@gmail.com');
     }
 
     function isLeadOf(companyId) {
