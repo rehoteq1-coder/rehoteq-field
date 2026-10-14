@@ -42,7 +42,11 @@ function eq(actual, expected, label) {
 require('fake-indexeddb/auto');
 const { JSDOM } = require('jsdom');
 
-function bootApp() {
+// opts.before(w)          — runs after the browser stubs, before any script
+// opts.transform(f, src)  — may rewrite a script's source before it runs
+// Both optional; the main run uses neither.
+function bootApp(opts) {
+  opts = opts || {};
   const dom = new JSDOM(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), {
     url: 'https://field.rehoteq.com/',
     // 'outside-only' gives us a real script context for window.eval without
@@ -78,6 +82,7 @@ function bootApp() {
   w.alert = () => {};
   w.confirm = () => false;
   w.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {} });
+  if (opts.before) opts.before(w);
 
   // Load exactly the scripts index.html declares, in that order. Reading them
   // from the page rather than hardcoding a list means the harness can never
@@ -85,7 +90,10 @@ function bootApp() {
   const indexSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const scripts = [...indexSrc.matchAll(/<script\s+src="([^"]+)"/g)].map(m => m[1]);
   if (!scripts.length) throw new Error('index.html declares no scripts');
-  for (const f of scripts) w.eval(fs.readFileSync(path.join(ROOT, f), 'utf8'));
+  for (const f of scripts) {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    w.eval(opts.transform ? opts.transform(f, src) : src);
+  }
   w.__scripts = scripts;
   return w;
 }
@@ -159,8 +167,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v37'/.test(swSrc),
-    'the service-worker cache is bumped to v37 for the release');
+  ok(/const CACHE = 'rehoteq-field-v38'/.test(swSrc),
+    'the service-worker cache is bumped to v38 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -2002,7 +2010,7 @@ async function suiteAccountsQuota(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v37'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v38'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
@@ -2127,6 +2135,274 @@ async function suiteAccountsQuota(w) {
       'the Not authorised card does not overwrite the Sign in card');
     dom.window.close();
   }
+
+  /* ---- suite 11: a failed sign-in says WHY ----------------------------
+     Reported Oct 2026: tap Sign in, go through Google, land back on the
+     Sign in button with no word about what happened. Three holes: Field
+     HQ dropped a refused tap on the floor (the button looked dead), the
+     app called every failure "check your connection", and
+     finishRedirect() swallowed the reason a redirect failed. Worse, when
+     the cross-site hand-off from Google is blocked the SDK reports no
+     error at all — just "no redirect" — so a code map alone is not enough.
+     ------------------------------------------------------------------ */
+  describe('11. A failed sign-in says why');
+  // The old Field HQ tap dropped FB.signIn()'s rejection on the floor. In
+  // a browser that is a silent button; in Node it would abort the whole
+  // run mid-suite. Collect strays instead, and fail by name at the end.
+  const stray = [];
+  const onStray = r => stray.push(r);
+  process.on('unhandledRejection', onStray);
+  const { IDBFactory } = require('fake-indexeddb');
+  const cfgSrc = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+
+  // firebase.js runs for real; only the Firebase SDK it would fetch from
+  // gstatic is faked. import() itself cannot be stubbed, so the test hands
+  // firebase.js a stand-in under another name.
+  const withFakeImport = src => src.replace(/\bimport\(/g, '__imp(');
+  function fakeSdk(o) {
+    o = o || {};
+    const auth = { currentUser: null };
+    const mods = {
+      app: { initializeApp: c => ({ options: c }) },
+      auth: {
+        getAuth: () => auth,
+        onAuthStateChanged: (x, cb) => { setTimeout(() => cb(x.currentUser), 0); return () => {}; },
+        getRedirectResult: () => (o.redirect ? o.redirect() : Promise.resolve(null)),
+        GoogleAuthProvider: function () { this.setCustomParameters = () => {}; },
+        // A tap that works leaves for Google and never resolves.
+        signInWithRedirect: () => (o.tap ? o.tap() : new Promise(() => {})),
+        signOut: () => Promise.resolve()
+      },
+      firestore: { getFirestore: () => ({}) }
+    };
+    return url => o.offline
+      ? Promise.reject(new TypeError('Failed to fetch dynamically imported module: ' + url))
+      : Promise.resolve(mods[/firebase-(\w+)\.js$/.exec(url)[1]]);
+  }
+  const authErr = code => Object.assign(new Error('Firebase: Error (' + code + ').'), { code });
+  // Same tab, next page load: sessionStorage is what survives the trip to
+  // Google and back, so the "return" window inherits the tapping one's.
+  function carrySession(from, to) {
+    for (let i = 0; i < from.sessionStorage.length; i++) {
+      const k = from.sessionStorage.key(i);
+      to.sessionStorage.setItem(k, from.sessionStorage.getItem(k));
+    }
+  }
+  function pageWith(html, url, sdk, carryFrom) {
+    const win = new JSDOM(html, { url, runScripts: 'outside-only', pretendToBeVisual: true }).window;
+    win.console.error = () => {};   // the failures below are the point; keep the output clean
+    if (carryFrom) carrySession(carryFrom, win);
+    win.__imp = fakeSdk(sdk);
+    win.eval(cfgSrc);
+    win.eval(withFakeImport(fbSrc));
+    return win;
+  }
+  const fbPage = (sdk, carryFrom) =>
+    pageWith('<!DOCTYPE html><p>page</p>', 'https://field.rehoteq.com/', sdk, carryFrom);
+  const hqPage = (sdk, carryFrom) => {
+    const win = pageWith(adminHtml, 'https://field.rehoteq.com/admin.html', sdk, carryFrom);
+    win.eval(adminJs);
+    return win;
+  };
+  const errBox = win => win.document.getElementById('signinError');
+
+  ok(typeof w.FB.redirectError === 'function' && typeof w.FB.authErrorText === 'function',
+    'firebase.js exposes redirectError() and authErrorText()');
+  {
+    const doc = new JSDOM(adminHtml).window.document;
+    const slot = doc.querySelector('#signedout #signinError');
+    ok(!!slot && slot.hidden && slot.getAttribute('role') === 'alert',
+      'admin.html has a #signinError slot on the Sign in card, hidden until there is something to say');
+  }
+
+  // Plain words, keyed on the code (the SDK's own message is only
+  // "Firebase: Error (auth/…).").
+  const allowList = w.FB.authErrorText(authErr('auth/unauthorized-domain'));
+  ok(allowList.includes('Authorized domains') && allowList.includes('field.rehoteq.com'),
+    'an address missing from the allow-list is named, with the console fix and this address');
+  ok(allowList.endsWith('(auth/unauthorized-domain)'),
+    'every explanation ends with its code, so a WhatsApp screenshot says exactly what happened');
+  ok(w.FB.authErrorText(authErr('auth/brand-new-code')).includes('auth/brand-new-code'),
+    'an unknown code is still named, never a blank');
+
+  // firebase.js itself, against the fake SDK.
+  {
+    const off = fbPage({ offline: true });
+    let code = null;
+    await off.FB.signIn().catch(e => { code = e.code; });
+    eq(code, 'rehoteq/sdk-unreachable',
+      'a sign-in SDK that will not load gets one code a page can explain');
+    const quiet = fbPage({ offline: true });
+    const r0 = await quiet.FB.finishRedirect();
+    ok(r0 === null && quiet.FB.redirectError() === null,
+      'an ordinary offline open is never reported as a failed sign-in');
+
+    const tapped = fbPage({});
+    tapped.FB.signIn();               // leaves for Google
+    await sleep(20);
+
+    const cancelled = fbPage({ redirect: () => Promise.reject(authErr('auth/user-cancelled')) }, tapped);
+    const r1 = await cancelled.FB.finishRedirect();
+    const e1 = cancelled.FB.redirectError();
+    ok(r1 === null && !!e1 && e1.code === 'auth/user-cancelled',
+      'a failed return from Google is kept for the page, not swallowed (and finishRedirect still never throws)');
+
+    const empty = fbPage({}, tapped);
+    await empty.FB.finishRedirect();
+    eq(empty.FB.redirectError() && empty.FB.redirectError().code, 'rehoteq/redirect-empty',
+      'back from Google with nobody signed in and no error is named, not silent');
+
+    const fine = fbPage({ redirect: () => Promise.resolve({ user: { uid: 'u9', email: 'tech@example.com' } }) }, tapped);
+    const u = await fine.FB.finishRedirect();
+    ok(!!u && u.email === 'tech@example.com' && fine.FB.redirectError() === null,
+      'a successful return signs in and reports no failure');
+    [off, quiet, tapped, cancelled, empty, fine].forEach(x => x.close());
+  }
+
+  // Field HQ with a stub FB: the card, the tap, the guards.
+  function hqStub(over) {
+    const a = new JSDOM(adminHtml, {
+      url: 'https://field.rehoteq.com/admin.html', runScripts: 'outside-only', pretendToBeVisual: true
+    }).window;
+    a.console.error = () => {};
+    let listener = null;
+    a.FB = Object.assign({
+      enabled: () => true,
+      finishRedirect: () => new Promise(() => {}),
+      onUser: fn => { listener = fn; return fn; },
+      listUsers: () => Promise.resolve([]),
+      listFeedback: () => Promise.resolve([]),
+      touchLastActive: () => Promise.resolve(),
+      signIn: () => new Promise(() => {}),
+      signOut: () => Promise.resolve(),
+      user: () => null
+    }, over);
+    a.eval(adminJs);
+    if (listener) listener(null);   // nobody signed in yet
+    return { a, fire: v => listener && listener(v) };
+  }
+  const mapped = e => 'MAPPED ' + e.code;
+  {
+    const { a, fire } = hqStub({
+      signIn: () => Promise.reject(authErr('auth/unauthorized-domain')),
+      authErrorText: mapped
+    });
+    a.document.getElementById('signin').click();
+    await sleep(20);
+    ok(!errBox(a).hidden && errBox(a).textContent.includes('MAPPED auth/unauthorized-domain'),
+      'a refused tap on Field HQ is explained on the Sign in card, in firebase.js\'s words');
+
+    a.FB.signIn = () => new Promise(() => {});
+    a.document.getElementById('signin').click();
+    await sleep(20);
+    ok(errBox(a).hidden && errBox(a).textContent === '',
+      'a new tap clears the previous failure before trying again');
+
+    a.FB.signIn = () => Promise.reject(authErr('auth/network-request-failed'));
+    a.document.getElementById('signin').click();
+    await sleep(20);
+    const me = { uid: 'u1', email: 'rehoteq@gmail.com', name: '', photo: '' };
+    a.FB.user = () => me;
+    fire(me);
+    await sleep(20);
+    ok(errBox(a).hidden && errBox(a).textContent === '',
+      'signing in clears an old failure, so it cannot resurface at sign-out');
+    a.close();
+  }
+  {
+    const { a } = hqStub({
+      finishRedirect: () => Promise.resolve(null),
+      redirectError: () => authErr('rehoteq/redirect-empty'),
+      authErrorText: mapped
+    });
+    await sleep(20);
+    ok(!errBox(a).hidden && errBox(a).textContent.includes('MAPPED rehoteq/redirect-empty') &&
+       a.document.getElementById('signedout').hidden === false,
+      'a failed return from Google is explained on the Sign in card');
+    a.close();
+  }
+  {
+    // An older firebase.js still in the phone's cache mid-update: neither
+    // redirectError() nor authErrorText() exists yet.
+    const { a } = hqStub({
+      finishRedirect: () => Promise.resolve(null),
+      signIn: () => Promise.reject(authErr('auth/unauthorized-domain'))
+    });
+    a.document.getElementById('signin').click();
+    await sleep(20);
+    ok(!errBox(a).hidden && errBox(a).textContent.includes('auth/unauthorized-domain'),
+      'with an older cached firebase.js the card still shows the code, never a crash');
+    a.close();
+  }
+
+  // The whole trip on Field HQ, real firebase.js and real admin.js.
+  {
+    const A = hqPage({});
+    await sleep(30);
+    A.document.getElementById('signin').click();   // off to Google…
+    await sleep(30);
+    const B = hqPage({}, A);                         // …and back with nobody signed in
+    await sleep(60);
+    ok(!errBox(B).hidden && errBox(B).textContent.includes('Google sent you back without signing you in'),
+      'the whole trip: tap, Google, back empty-handed, and Field HQ says why');
+    const C = hqPage({}, B);                         // the owner reloads
+    await sleep(60);
+    ok(errBox(C).hidden, 'the pending note is used once: a reload does not repeat the message');
+
+    const D = hqPage({ tap: () => Promise.reject(authErr('auth/unauthorized-domain')) });
+    await sleep(30);
+    D.document.getElementById('signin').click();
+    await sleep(30);
+    ok(!errBox(D).hidden && errBox(D).textContent.includes('Authorized domains'),
+      'Field HQ explains an allow-list refusal on the tap with the console fix');
+    const E = hqPage({}, D);
+    await sleep(60);
+    ok(errBox(E).hidden,
+      'a tap refused before leaving the page leaves no false "came back empty" on the next load');
+    [A, B, C, D, E].forEach(x => x.close());
+  }
+
+  // The app: the real Settings button, then a real boot after a trip.
+  eq(w.FB.redirectError(), null, 'an ordinary app open, with no sign-in in flight, records no failure');
+  {
+    const realSignIn = w.FB.signIn;
+    w.FB.signIn = () => Promise.reject(authErr('auth/unauthorized-domain'));
+    w.ACT.go('settings');
+    await sleep(40);
+    const btn = [...w.document.querySelectorAll('[onclick]')]
+      .find(b => (b.getAttribute('onclick') || '') === 'ACT.signIn()');
+    if (btn) w.eval('(function(){ ' + btn.getAttribute('onclick') + ' })()');
+    await sleep(40);
+    const said = w.document.getElementById('toast').textContent;
+    w.FB.signIn = realSignIn;
+    ok(!!btn && said.includes('Sign-in did not finish') && said.includes('Authorized domains') &&
+       !said.includes('Check your connection'),
+      'tapping Sign in in the app names the real reason, not "check your connection"');
+  }
+  {
+    const viaFake = (sdk, carryFrom) => bootApp({
+      before: win => {
+        win.indexedDB = new IDBFactory();   // a phone of its own, apart from the main run
+        win.__imp = fakeSdk(sdk);
+        if (carryFrom) carrySession(carryFrom, win);
+      },
+      transform: (f, src) => (f === 'firebase.js' ? withFakeImport(src) : src)
+    });
+    const before = viaFake({});
+    await sleep(80);
+    before.ACT.signIn();                  // off to Google…
+    await sleep(30);
+    const after = viaFake({}, before);    // …and the app boots again, nobody signed in
+    await sleep(150);
+    const said = after.document.getElementById('toast').textContent;
+    ok(said.includes('Sign-in did not finish') && said.includes('Google sent you back without signing you in'),
+      'the app, back from Google empty-handed, says why on boot instead of a silent Sign in button');
+    before.close(); after.close();
+  }
+  await sleep(20);
+  process.off('unhandledRejection', onStray);
+  ok(stray.length === 0, 'no sign-in failure vanishes as an unhandled rejection',
+    stray.map(r => (r && r.code) || String(r)).join(', '));
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);

@@ -155,6 +155,27 @@
       : ' — not the owner account (sign out and switch)';
   }
 
+  // Say WHY sign-in failed. Before this, every failure (a web address
+  // missing from the allow-list, a browser that blocked the hand-off from
+  // Google, a cancelled account chooser) ended the same way: back on the
+  // Sign in card with no word about what went wrong. The typeof guard
+  // keeps an older cached firebase.js working in the middle of an update.
+  function signInProblem(err) {
+    try { console.error('sign-in failed:', err && err.code, err); } catch (e) {}
+    if (FB.user()) return;            // someone IS signed in: nothing to explain
+    var why = typeof FB.authErrorText === 'function'
+      ? FB.authErrorText(err)
+      : String((err && (err.code || err.message)) || 'unknown error');
+    $('signinError').textContent = 'Sign-in did not finish. ' + why;
+    $('signinError').hidden = false;
+    show('signedout');
+  }
+
+  function clearSignInProblem() {
+    $('signinError').textContent = '';
+    $('signinError').hidden = true;
+  }
+
   function start() {
     if (!FB.enabled()) { show('signedout'); return; }
     // Register FIRST, before finishRedirect() resolves. The signed-out
@@ -164,10 +185,16 @@
     // never depend on that safety net.)
     FB.onUser(function (u) {
       if (!u) { show('signedout'); return; }
+      clearSignInProblem();   // signed in: an old failure must not resurface at sign-out
       load();          // the query is the authorisation check
       FB.touchLastActive();
     });
-    FB.finishRedirect().catch(function () { /* no redirect pending, carry on */ });
+    // finishRedirect never throws; it keeps the reason a returning
+    // sign-in failed instead. Guarded, like signInProblem.
+    FB.finishRedirect().then(function () {
+      var err = typeof FB.redirectError === 'function' ? FB.redirectError() : null;
+      if (err) signInProblem(err);
+    }).catch(function () { /* no redirect pending, carry on */ });
     // Safety net: on a network too poor to fetch the Firebase SDK at all,
     // auth never resolves and the listener above never fires. Never leave
     // the owner staring at "Loading…" — fall back to the sign-in card,
@@ -177,7 +204,14 @@
     }, 15000);
   }
 
-  $('signin').addEventListener('click', function () { FB.signIn(); });
+  // The tap itself can fail before the page ever leaves for Google: an
+  // address missing from the allow-list, no connection, Google sign-in
+  // switched off. That rejection used to vanish unheard, so the button
+  // looked dead. Wrapped so even a synchronous throw lands on the card.
+  $('signin').addEventListener('click', function () {
+    clearSignInProblem();
+    Promise.resolve().then(function () { return FB.signIn(); }).catch(signInProblem);
+  });
   $('signout').addEventListener('click', function () { FB.signOut(); });
   $('refresh').addEventListener('click', load);
 
