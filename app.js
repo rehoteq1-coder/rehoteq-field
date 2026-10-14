@@ -10,6 +10,11 @@
 (function () {
   'use strict';
 
+  // One place the version lives. It is printed in Settings and written
+  // into every cloud backup label, so "which build made this backup" is
+  // answerable months later.
+  const APP_VERSION = '1.9.0';
+
   const $ = id => document.getElementById(id);
   const app = () => $('app');
 
@@ -30,7 +35,17 @@
     // enters a job card until the technician explicitly confirms a cause.
     diag: { trade: 'solar', fault: '', code: '', equipment: '', busy: false, result: null },
     accounts: [], usageLedger: { version: 1, reportIds: [], used: 0, count: 0 },
-    workerCode: ''
+    workerCode: '',
+    // v1.9.0 cloud backup. `latest` is the label for the backup sitting in
+    // the signed-in account's storage — the cached copy is read at boot so
+    // the screen is right before the network answers, and refreshed from
+    // Firestore as soon as sign-in resolves. `busy` stops a second tap
+    // while an upload or a restore is in flight.
+    cloud: { latest: null, busy: false, fromCache: false, lastRestore: null },
+    // v1.8.4 account self-diagnosis: what the last "Account check" found,
+    // so the answer stays on the screen instead of scrolling past in a
+    // toast.
+    accountCheck: null
   };
 
   const USAGE_LEDGER_KEY = 'rehoteq_usage_ledger_v1';
@@ -187,10 +202,53 @@
      Sign-in exists only to answer three questions the device cannot
      answer for itself: are you actually Pro, when does your trial end,
      and who are your technicians. Nothing about doing a job needs it.
+
+     v1.8.4 — the card is also the self-diagnosis for the wrong-account
+     problem. Everything that disappointed a user (an invite that "did
+     not act", a Field HQ row that never appeared) hangs off ONE thing:
+     which Google account the phone is actually signed in as, which is
+     not necessarily the address typed into the profile in Settings.
+     So the signed-in Google account is printed plainly, and when it
+     differs from the profile email the card says so and offers the way
+     out. Two addresses on one phone is the bug we keep finding; this is
+     how the technician sees it without asking anyone.
      ------------------------------------------------------------------ */
+  // The comparison both the card and the check agree on.
+  function accountDiagnosis() {
+    const fb = S.fbUser;
+    const out = {
+      signedIn: !!fb,
+      google: (fb && fb.email) || '',
+      profile: ((S.user && S.user.email) || '').trim(),
+      name: (fb && (fb.name || fb.email)) || '',
+      owner: !!fb && isOwnerAccount(),
+      mismatch: false
+    };
+    out.mismatch = !!(out.google && out.profile &&
+      out.google.trim().toLowerCase() !== out.profile.toLowerCase());
+    return out;
+  }
+
+  // The result of the last "Account check", rendered in the card. Kept in
+  // one place so a signed-out phone shows it too: after the check has named
+  // a wrong account, signing out must not wipe the explanation off the
+  // screen before it has been read.
+  function accountCheckPanel() {
+    if (!S.accountCheck) return '';
+    return `<div class="cb" style="padding-top:0">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Checked ${esc(tstr(S.accountCheck.at))}</div>
+            ${S.accountCheck.lines.map(l => `<div style="display:flex;gap:7px;align-items:flex-start;font-size:11.5px;
+              line-height:1.5;margin-bottom:5px">
+              <span style="flex:none;color:${l.ok ? '#0E7C5A' : '#B45309'};margin-top:1px">${
+                ICON(l.ok ? 'check' : 'alert-triangle', 13)}</span>
+              <span>${esc(l.text)}</span></div>`).join('')}
+          </div>`;
+  }
+
   function accountCard() {
     const u = S.fbUser;
     if (u) {
+      const d = accountDiagnosis();
       return `
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Account</div>
@@ -205,6 +263,23 @@
               <div style="font-size:11px;font-weight:700;color:var(--primary);margin-top:2px">${planLine()}</div>
             </div>
           </div>
+          <div class="cb" style="padding-top:9px;padding-bottom:2px;font-size:11.5px;color:var(--muted);line-height:1.55">
+            Signed in with Google as <b>${esc(d.google)}</b>. Team invites, seat changes and
+            Field HQ follow <b>this</b> Google account — not the email typed into your profile.
+          </div>
+          ${d.mismatch ? `<div class="cb" style="padding-top:2px">
+            <div class="warnbox" style="margin:0">
+              <div class="wh">${ICON('alert-triangle', 14)} Two different addresses on this phone</div>
+              <div class="wt">Your profile says <b>${esc(d.profile)}</b>, but Google signed you in as
+              <b>${esc(d.google)}</b>. An invite sent to one address will not act on the other, and
+              the Field HQ row unlocks on the Google account only. If that is the wrong account,
+              sign out below and pick the right one.</div>
+            </div></div>` : ''}
+          <div class="srow" onclick="ACT.accountCheck()"><span class="si">${ICON('eye', 17)}</span>
+            <span class="sl">Account check<br>
+              <span style="font-size:11px;color:var(--muted);font-weight:500">Who this phone is signed in as, and what the server says</span></span>
+            <span style="color:#94A3B8">›</span></div>
+          ${accountCheckPanel()}
           <div class="srow" onclick="ACT.signOut()"><span class="si">${ICON('log-out', 17)}</span>
             <span class="sl">Sign out</span><span style="color:#94A3B8">›</span></div>
         </div>`;
@@ -221,6 +296,7 @@
           <button class="btn primary" style="width:100%" onclick="ACT.signIn()">
             ${ICON('log-in', 17)} Sign in with Google</button>
         </div>
+        ${accountCheckPanel()}
       </div>`;
   }
 
@@ -269,6 +345,54 @@
     toast('Sign-in did not finish', why, 9000);
   }
   function go(view) { S.view = view; render(); }
+
+  /* ---------------- cloud backup helpers ------------------------------ */
+
+  function mbLine(bytes) {
+    const b = Number(bytes) || 0;
+    if (b < 1024 * 1024) return Math.max(1, Math.round(b / 1024)) + ' KB';
+    return (b / 1024 / 1024).toFixed(b < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
+  }
+  // "3 jobs · 21 photos · 18.4 MB" — what is actually up in the cloud,
+  // printed from the label rather than guessed.
+  function cloudLine(latest) {
+    if (!latest) return '';
+    const j = Number(latest.jobs) || 0, p = Number(latest.photos) || 0;
+    return j + ' job' + (j === 1 ? '' : 's') + ' · ' + p + ' photo' + (p === 1 ? '' : 's') +
+      (latest.bytes ? ' · ' + mbLine(latest.bytes) : '');
+  }
+  function cloudWhy(err) {
+    const F = window.FB;
+    if (F && typeof F.cloudErrText === 'function') return F.cloudErrText(err);
+    return 'The cloud did not answer. Check your data or Wi-Fi, then try again.';
+  }
+  // A restore fails in one of two ways and they are not the same sentence:
+  // the cloud did not hand the file over, or the file it handed over cannot
+  // be opened. The second one is ours to fix, and the technician must not
+  // be told to check his data for it.
+  function restoreWhy(err) {
+    const msg = String((err && err.message) || err || '');
+    if (/not a REHOTEQ backup|not a zip|damaged zip|truncated zip|unsupported compression|unreadable|refused/i.test(msg)) {
+      return 'The backup behind this account could not be opened (' + msg + '). Tell REHOTEQ — do not delete anything on this phone.';
+    }
+    return cloudWhy(err);
+  }
+
+  // Ask the cloud what it holds for the signed-in account. Never throws:
+  // an offline phone keeps the screen it already had.
+  async function refreshCloudInfo() {
+    if (!S.fbUser || !window.FB || typeof window.FB.cloudLatest !== 'function') return null;
+    try {
+      const latest = await window.FB.cloudLatest();
+      if (latest) {
+        S.cloud.latest = latest;
+        S.cloud.fromCache = false;
+        await DB.setMeta('cloudBackup', latest);
+      }
+      if (S.view === 'settings' || S.view === 'boot' || S.view === 'home') render();
+      return latest;
+    } catch (e) { return null; }
+  }
 
   // Nag, but only when it is actually true: never-backed-up with real work
   // on the phone, or a backup that has gone stale.
@@ -320,6 +444,206 @@
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return new Blob([bytes], { type: type || 'image/jpeg' });
+  }
+
+  /* ---------------- BACKUP — one file that is the whole phone ---------
+     Everything the technician owns: the job cards, the photos with their
+     stamps, the company profile, the crew record. zip.js writes it, and
+     zip.js reads it — the same code path whether the file arrived from
+     the cloud, from Downloads, or from a friend's phone over WhatsApp.
+
+     Why a zip and not the JSON the file backup has always used: photos.
+     In JSON every photo is base64 — a third bigger, and the whole archive
+     has to exist in memory as one string. A technician with 300 job
+     photos has a phone, not a workstation.
+
+       backup.json       — format, version, exportedAt, user, jobs, team,
+                           and one row per photo (its evidence metadata
+                           plus the name of its file in the archive)
+       photos/<id>.jpg   — the image bytes, untouched
+
+     A zip of one of these opens on any phone, laptop or customer's PC,
+     which is the point: an archive the technician cannot open is not
+     really his.
+
+     Photos are stored, never deflated: a JPEG is already compressed, so
+     deflating it again spends battery to save nothing.
+     -------------------------------------------------------------------- */
+  const BACKUP = (function () {
+    const FORMAT = 'rehoteq-field-backup';
+    const VERSION = 2;
+
+    function safeName(id) {
+      return String(id === null || id === undefined ? 'photo' : id).replace(/[^A-Za-z0-9._-]+/g, '_');
+    }
+
+    // The manifest plus the image entries, built together so a photo row
+    // can never name a file that is not in the archive.
+    async function collect() {
+      const jobs = await DB.all('jobs');
+      const photos = await DB.all('photos');
+      const rows = [];
+      const entries = [];
+      for (const p of photos) {
+        let file = null;
+        if (p.blob) {
+          try {
+            entries.push({ name: 'photos/' + safeName(p.id) + '.jpg', data: await IMG.blobToBytes(p.blob) });
+            file = 'photos/' + safeName(p.id) + '.jpg';
+          } catch (e) { file = null; }
+        }
+        rows.push({
+          id: p.id, jobId: p.jobId, stage: p.stage, sha256: p.sha256,
+          capturedAt: p.capturedAt, lat: p.lat, lng: p.lng, w: p.w, h: p.h,
+          file: file
+        });
+      }
+      const manifest = {
+        format: FORMAT, version: VERSION,
+        exportedAt: new Date().toISOString(),
+        user: S.user || null,
+        jobs: jobs,
+        photos: rows,
+        photoCount: photos.length,
+        team: TEAM.serialize()
+      };
+      return { manifest: manifest, entries: entries, photos: photos.length,
+        jobs: jobs.length, images: entries.length };
+    }
+
+    async function pack() {
+      const c = await collect();
+      const bytes = ZIP.build([{ name: 'backup.json', data: JSON.stringify(c.manifest) }].concat(c.entries));
+      return {
+        blob: new Blob([bytes], { type: 'application/zip' }),
+        bytes: bytes.length,
+        name: 'rehoteq-field-backup-' + new Date().toISOString().slice(0, 10) + '.zip',
+        at: c.manifest.exportedAt,
+        jobs: c.jobs,
+        photos: c.images,
+        missing: c.photos - c.images,
+        manifest: c.manifest
+      };
+    }
+
+    // Read one back. Accepts a File, a Blob, a Uint8Array or an ArrayBuffer.
+    // Returns exactly the shape applyRestore() wants, so the cloud path and
+    // the file path cannot drift apart.
+    async function unpack(input) {
+      const files = await ZIP.read(input);
+      const byName = {};
+      files.forEach(f => { byName[f.name] = f; });
+      const man = byName['backup.json'];
+      if (!man) throw new Error('this is not a REHOTEQ backup (no backup.json inside)');
+
+      let data;
+      try { data = JSON.parse(ZIP.toText(man.data)); }
+      catch (e) { throw new Error('the backup list inside the file is unreadable'); }
+      if (!data || data.format !== FORMAT) throw new Error('this is not a REHOTEQ backup file');
+
+      let damaged = 0;
+      const photos = (Array.isArray(data.photos) ? data.photos : []).map(row => {
+        const f = row.file ? byName[row.file] : null;
+        const good = f && f.crcOk !== false;
+        if (f && f.crcOk === false) damaged++;
+        return Object.assign({}, row, {
+          blob: good ? new Blob([f.data], { type: 'image/jpeg' }) : null
+        });
+      });
+
+      return {
+        format: FORMAT,
+        data: data,
+        jobs: Array.isArray(data.jobs) ? data.jobs : [],
+        photos: photos,
+        team: data.team || null,
+        user: data.user || null,
+        exportedAt: data.exportedAt || null,
+        photoCount: photos.length,
+        withImages: photos.filter(p => p.blob).length,
+        damaged: damaged
+      };
+    }
+
+    return { FORMAT: FORMAT, VERSION: VERSION, pack: pack, unpack: unpack, collect: collect };
+  })();
+  window.BACKUP = BACKUP;
+
+  // The old .json backup — every photo carried as base64 inside the JSON.
+  // Still readable: a technician who backed up in v1.8.x must never lose
+  // that file to an upgrade.
+  async function readJsonBackup(file) {
+    let data;
+    try { data = JSON.parse(await file.text()); }
+    catch (e) { throw new Error('that file is not readable as a backup'); }
+    if (!data || data.format !== BACKUP.FORMAT) throw new Error('that is not a REHOTEQ backup file');
+    const photos = (Array.isArray(data.photos) ? data.photos : []).map(row => {
+      const rec = Object.assign({}, row);
+      let blob = null;
+      if (typeof rec.image === 'string' && rec.image) {
+        try { blob = base64ToBlob(rec.image, 'image/jpeg'); } catch (e) { blob = null; }
+      }
+      delete rec.image;
+      return Object.assign(rec, { blob: blob });
+    });
+    return {
+      format: BACKUP.FORMAT, data: data,
+      jobs: Array.isArray(data.jobs) ? data.jobs : [],
+      photos: photos,
+      team: data.team || null,
+      user: data.user || null,
+      exportedAt: data.exportedAt || null,
+      photoCount: photos.length,
+      withImages: photos.filter(p => p.blob).length,
+      damaged: 0
+    };
+  }
+
+  // Merge a backup in. Never a blind replace: a restore must not destroy
+  // newer work on the phone that is being restored onto.
+  async function applyRestore(p) {
+    const jobs = Array.isArray(p.jobs) ? p.jobs : [];
+    const photos = Array.isArray(p.photos) ? p.photos : [];
+    if (!jobs.length && !photos.length && !p.team) throw new Error('that backup is empty');
+
+    let addedJ = 0, updatedJ = 0;
+    for (const j of jobs) {
+      if (!j || !j.id) continue;
+      const existing = await DB.get('jobs', j.id);
+      if (existing) updatedJ++; else addedJ++;
+      await DB.put('jobs', j);
+    }
+
+    let addedP = 0, noImage = 0;
+    for (const row of photos) {
+      const rec = Object.assign({}, row);
+      delete rec.file;
+      if (!rec.blob) noImage++;
+      if (!rec.id) continue;
+      const existing = await DB.get('photos', rec.id);
+      if (!existing) addedP++;
+      await DB.put('photos', rec);
+    }
+
+    if (p.user) { S.user = p.user; await DB.setMeta('user', p.user); }
+    // Backups from before teams existed carry no team key at all;
+    // restore() treats that as "nothing to do" rather than an error.
+    const teamNote = p.team ? await TEAM.restore(p.team) : null;
+
+    await refreshJobs();
+    await loadUsageLedger();
+    await refreshEquipment();
+    const all = await DB.all('photos');
+    all.forEach(x => { if (!x.url && x.blob) x.url = URL.createObjectURL(x.blob); });
+    S.photos = {};
+    go('home');
+    return { addedJ: addedJ, updatedJ: updatedJ, addedP: addedP, noImage: noImage, teamNote: teamNote };
+  }
+
+  function restoreNote(r) {
+    return (r.noImage ? r.noImage + ' photo(s) had no image data · ' : '') +
+      (r.teamNote && (r.teamNote.company || r.teamNote.membersAdded) ? 'crew restored · ' : '') +
+      (r.updatedJ ? r.updatedJ + ' existing job(s) updated' : 'Nothing overwritten');
   }
 
   async function newJob() {
@@ -1669,8 +1993,31 @@
     const showLogin = mode === 'login' && !isEditing;
     const showDocFields = Boolean(S.user || mode === 'company');
     const logoObj = (S.user && S.user.logo) || (S.draftProfile && S.draftProfile.logo) || null;
+    // v1.9.0: a new or wiped phone lands here, signed in with the same
+    // Google account, and the one thing that matters is one tap away.
+    // Only shown when signed in AND a backup actually exists — the banner
+    // is never an advert.
+    const cloud = S.fbUser && S.cloud.latest && S.cloud.latest.updatedAt ? S.cloud.latest : null;
     return `
     <div class="pad" style="padding-top:${isEditing ? '24px' : '18px'}">
+      ${cloud ? `
+        <div class="card" style="margin-bottom:12px;border:1.5px solid var(--primary)">
+          <div class="cb">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:7px">
+              <span style="color:var(--primary-d)">${ICON('cloud', 18)}</span>
+              <b style="font-size:13.5px">Your work is in the cloud</b>
+            </div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:11px">
+              Signed in as <b>${esc(S.fbUser.email || '')}</b>. A backup from
+              <b>${esc(dstr(cloud.updatedAt))}</b> is waiting: ${esc(cloudLine(cloud))}.
+              Restore it and this phone becomes that backup — job cards, photos, profile and crew.
+            </div>
+            <button class="btn primary" style="width:100%" onclick="ACT.cloudRestore()">
+              ${ICON('download', 17)} Restore from the cloud</button>
+            <button class="btn ghost sm" style="width:100%;margin-top:8px" onclick="ACT.go('settings')">
+              Start fresh instead</button>
+          </div>
+        </div>` : ''}
       ${!isEditing ? `
         <div class="hero-land">
           <div class="eyebrow">${ICON('shield-check', 12)} Field Engineering OS · Works Offline</div>
@@ -2538,6 +2885,22 @@
             </div></div>` : `<div class="cb" style="padding-top:2px;padding-bottom:6px;font-size:11.5px;color:var(--muted);line-height:1.55">
               A backup file is only safe somewhere other than this phone.
               Email it to yourself or put it in Drive.</div>`}
+          ${S.fbUser ? `
+          <div class="srow" onclick="ACT.cloudBackup()"><span class="si">${ICON('cloud', 17)}</span>
+            <span class="sl">Back up this phone to the cloud<br>
+              <span style="font-size:11px;color:var(--muted);font-weight:500">${
+                S.cloud.busy ? 'Working — do not close the app'
+                : S.cloud.latest && S.cloud.latest.updatedAt
+                  ? 'Saved ' + dstr(S.cloud.latest.updatedAt) + ' · ' + cloudLine(S.cloud.latest)
+                  : 'One tap · jobs + photos · says the date when it is done'}</span></span>
+            <span style="color:#0E7C5A;font-weight:700">${S.cloud.busy ? '…' : (S.cloud.latest && S.cloud.latest.updatedAt ? 'Update' : 'Best')}</span></div>
+          <div class="srow" onclick="ACT.cloudRestore()"><span class="si">${ICON('download', 17)}</span>
+            <span class="sl">Restore from the cloud<br>
+              <span style="font-size:11px;color:var(--muted);font-weight:500">${
+                S.cloud.latest && S.cloud.latest.updatedAt
+                  ? 'Backup of ' + dstr(S.cloud.latest.updatedAt) + ' · asks before it changes anything'
+                  : 'Nothing saved on this account yet'}</span></span>
+            <span style="color:#94A3B8">›</span></div>` : ''}
           <div class="srow" onclick="ACT.shareBackup()"><span class="si">${ICON('upload', 17)}</span>
             <span class="sl">Send backup off this phone<br>
               <span style="font-size:11px;color:var(--muted);font-weight:500">Jobs + photos · email or Drive</span></span>
@@ -2549,7 +2912,9 @@
               <span style="font-size:11px;color:var(--muted);font-weight:500">Much smaller · no photos</span></span>
             <span style="color:#94A3B8">›</span></div>
           <div class="srow" onclick="ACT.importBackup()"><span class="si">${ICON('download', 17)}</span>
-            <span class="sl">Restore from backup</span><span style="color:#94A3B8">›</span></div>
+            <span class="sl">Restore from backup<br>
+              <span style="font-size:11px;color:var(--muted);font-weight:500">A .zip from the cloud, or an older .json file</span></span>
+            <span style="color:#94A3B8">›</span></div>
         </div>
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Support</div>
@@ -2575,7 +2940,7 @@
             <span class="sl" style="color:#DC2626">Delete everything on this device</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.7">
-          REHOTEQ Field v1.8.3 · PWA<br>Built for the people holding the phone.
+          REHOTEQ Field v${APP_VERSION} · PWA<br>Built for the people holding the phone.
         </div>
       </div>`;
   };
@@ -3824,63 +4189,168 @@
       toast('Sharing not available here', 'Use "Download backup" and move the file yourself');
     },
 
+    // A .zip from the cloud (or from a friend's phone) or an older .json
+    // file. The file is routed by its bytes, not its name, so a renamed
+    // file still opens.
     importBackup() {
       const input = document.createElement('input');
-      input.type = 'file'; input.accept = '.json,application/json';
+      input.type = 'file'; input.accept = '.json,.zip,application/json,application/zip';
       input.onchange = async () => {
         const f = input.files && input.files[0];
         if (!f) return;
         try {
-          const text = await f.text();
-          const data = JSON.parse(text);
-          if (data.format !== 'rehoteq-field-backup') {
-            return toast('That is not a REHOTEQ backup file', 'Pick the file the app downloaded');
-          }
-          const jobs = Array.isArray(data.jobs) ? data.jobs : [];
-          const photos = Array.isArray(data.photos) ? data.photos : [];
-          if (!jobs.length && !photos.length) return toast('That backup is empty');
-
-          // merge, never blind-replace: a restore must not destroy newer work
-          let addedJ = 0, updatedJ = 0;
-          for (const j of jobs) {
-            const existing = await DB.get('jobs', j.id);
-            if (!existing) addedJ++; else updatedJ++;
-            await DB.put('jobs', j);
-          }
-          let addedP = 0, noImage = 0;
-          for (const p of photos) {
-            const rec = Object.assign({}, p);
-            if (rec.image) {
-              try { rec.blob = base64ToBlob(rec.image, 'image/jpeg'); }
-              catch (e) { rec.blob = null; noImage++; }
-            } else { noImage++; }
-            delete rec.image;
-            const existing = await DB.get('photos', rec.id);
-            if (!existing) addedP++;
-            await DB.put('photos', rec);
-          }
-          if (data.user) { S.user = data.user; await DB.setMeta('user', data.user); }
-          // Backups from before teams existed carry no team key at all;
-          // restore() treats that as "nothing to do" rather than an error.
-          const teamNote = data.team ? await TEAM.restore(data.team) : null;
-
-          await refreshJobs();
-          await loadUsageLedger();
-          await refreshEquipment();
-          const all = await DB.all('photos');
-          all.forEach(p => { if (!p.url && p.blob) p.url = URL.createObjectURL(p.blob); });
-          S.photos = {};
-          go('home');
-          toast('Restored ' + addedJ + ' jobs, ' + addedP + ' photos',
-            (noImage ? noImage + ' photo(s) had no image data · ' : '') +
-            (teamNote && (teamNote.company || teamNote.membersAdded)
-              ? 'crew restored · ' : '') +
-            (updatedJ ? updatedJ + ' existing job(s) updated' : 'Nothing overwritten'));
+          // Routed by its bytes, not by its name: a zip is a zip even if it
+          // was renamed on the way through WhatsApp, and a .json from
+          // v1.8.x is still read as what it is.
+          const bytes = new Uint8Array(await f.arrayBuffer());
+          const p = ZIP.isZip(bytes) ? await BACKUP.unpack(bytes) : await readJsonBackup(f);
+          const r = await applyRestore(p);
+          toast('Restored ' + r.addedJ + ' jobs, ' + r.addedP + ' photos', restoreNote(r));
         } catch (e) {
           toast('Could not read that file', String(e.message || e));
         }
       };
       input.click();
+    },
+
+    /* ---- v1.9.0 cloud backup -----------------------------------------
+       One tap on a good connection for the technician; one tap and a
+       confirmation for the phone that lost everything. Both live behind
+       a Google sign-in, because a backup has to belong to somebody.
+       ---------------------------------------------------------------- */
+    async cloudBackup() {
+      if (S.cloud.busy) return;
+      if (!S.fbUser) {
+        return toast('Sign in first', 'Settings → Account → Sign in with Google. The backup belongs to your account.');
+      }
+      if (!window.FB || typeof window.FB.cloudUpload !== 'function') {
+        return toast('Cloud backup needs the new version', 'Reload the app (or update it) and try again');
+      }
+      if (!S.online) {
+        return toast('No connection right now', 'A cloud backup uploads the file — try again when you have data');
+      }
+      S.cloud.busy = true;
+      render();
+      let bundle = null;
+      try {
+        bundle = await BACKUP.pack();
+      } catch (e) {
+        // Reading this phone failed, which is not the cloud's fault and
+        // must not be reported as if it were.
+        S.cloud.busy = false;
+        return toast('Could not read this phone to back it up',
+          String((e && e.message) || e) + ' — nothing was sent', 8000);
+      }
+      try {
+        await window.FB.cloudUpload(bundle.blob, {
+          jobs: bundle.jobs, photos: bundle.photos,
+          bytes: bundle.bytes, appVersion: APP_VERSION
+        });
+        const at = new Date().toISOString();
+        S.lastBackup = at;
+        S.cloud.latest = {
+          updatedAt: at, jobs: bundle.jobs, photos: bundle.photos,
+          bytes: bundle.bytes, appVersion: APP_VERSION
+        };
+        await DB.setMeta('lastBackup', at);
+        await DB.setMeta('cloudBackup', S.cloud.latest);
+        toast('Backed up to the cloud — ' + dstr(at),
+          bundle.jobs + ' jobs · ' + bundle.photos + ' photos · ' + mbLine(bundle.bytes) +
+          (bundle.missing ? ' · ' + bundle.missing + ' photo(s) had no image data' : ''));
+      } catch (e) {
+        toast('Cloud backup did not finish', cloudWhy(e), 8000);
+      }
+      S.cloud.busy = false;
+      render();
+    },
+
+    // The phone is new, or wiped, or came back from a repair. Sign in with
+    // the same Google account and this turns it into the backup. It asks
+    // first, and it merges rather than wipes: work done on this phone since
+    // the backup is not thrown away.
+    async cloudRestore() {
+      if (S.cloud.busy) return;
+      if (!S.fbUser) {
+        return toast('Sign in first', 'Settings → Account → Sign in with Google — the same account that made the backup');
+      }
+      if (!window.FB || typeof window.FB.cloudDownload !== 'function') {
+        return toast('Cloud restore needs the new version', 'Reload the app (or update it) and try again');
+      }
+      if (!S.online) {
+        return toast('No connection right now', 'A restore downloads the file — try again when you have data');
+      }
+      const latest = S.cloud.latest;
+      const when = latest && latest.updatedAt ? dstr(latest.updatedAt) : null;
+      const what = latest ? ' (' + cloudLine(latest) + ')' : '';
+      if (!confirm('Restore the cloud backup' + (when ? ' from ' + when : '') + what + '?\n\n' +
+        'Everything in that backup comes back onto this phone: job cards, photos, your profile ' +
+        'and your crew. Work already on this phone is merged, not deleted.\n\n' +
+        'Use this on a new or wiped phone — not to undo a job you finished ten minutes ago.')) {
+        return;
+      }
+      S.cloud.busy = true;
+      render();
+      try {
+        const blob = await window.FB.cloudDownload();
+        const p = await BACKUP.unpack(blob);
+        S.cloud.lastRestore = { at: new Date().toISOString(), from: p.exportedAt };
+        const r = await applyRestore(p);
+        S.lastBackup = S.lastBackup || p.exportedAt || new Date().toISOString();
+        await DB.setMeta('lastBackup', S.lastBackup);
+        toast('Restored ' + r.addedJ + ' jobs, ' + r.addedP + ' photos' +
+          (p.exportedAt ? ' — backup of ' + dstr(p.exportedAt) : ''), restoreNote(r), 7000);
+      } catch (e) {
+        toast('Cloud restore did not finish', restoreWhy(e), 8000);
+      }
+      S.cloud.busy = false;
+      render();
+    },
+
+    // v1.8.4 — the answer to "why is my invite not acting?" on the screen
+    // instead of in a support chat. It reports what this device knows and
+    // what the server said, and it names the mismatch when there is one.
+    async accountCheck() {
+      const d = accountDiagnosis();
+      if (!d.signedIn) {
+        S.accountCheck = { at: new Date().toISOString(), lines: [
+          { ok: false, text: 'No Google account is signed in on this phone. Team invites, seat changes and Field HQ need one — tap Sign in with Google above.' }
+        ] };
+        return render();
+      }
+      const lines = [
+        { ok: true, text: 'Google account signed in on this phone: ' + d.google },
+        { ok: !d.mismatch, text: d.mismatch
+          ? 'The profile in Settings says ' + d.profile + ' — a different address. Invites act on the Google account, so send them to ' + d.google + '.'
+          : (d.profile ? 'The profile email matches the Google account (' + d.profile + ').'
+                       : 'No profile email set yet — that is fine, the Google account above is what counts.') },
+        { ok: d.owner, text: d.owner
+          ? 'This account IS the owner account — the Field HQ row is unlocked.'
+          : 'Not an owner account, so the Field HQ row is meant to be hidden. Admin is owner-only.' }
+      ];
+
+      // What the server says. The trial clock and the plan are written by
+      // a Cloud Function; if this comes back empty the account record is
+      // missing, which is the other half of the wrong-account problem.
+      let rec = null;
+      try { rec = await window.FB.profile(); } catch (e) { rec = null; }
+      if (rec) {
+        const t = rec.trialEndsAt
+          ? (rec.trialEndsAt.toDate ? rec.trialEndsAt.toDate().toISOString() : String(rec.trialEndsAt))
+          : null;
+        lines.push({ ok: true, text: 'Server record found: plan ' + (rec.plan || 'free') +
+          (t ? ', trial ends ' + dstr(t) : '') + '.' });
+      } else {
+        lines.push({ ok: false, text: S.online
+          ? 'No server record came back for this account. If you paid or started a trial on another Google account, that is where it lives.'
+          : 'Offline, so the server could not be asked. This is not an error — try the check again with data.' });
+      }
+      lines.push({ ok: true, text: 'Cloud backup: ' + (S.cloud.latest && S.cloud.latest.updatedAt
+        ? 'a backup from ' + dstr(S.cloud.latest.updatedAt) + ' is on this account'
+        : 'nothing backed up on this account yet') + '.' });
+
+      S.accountCheck = { at: new Date().toISOString(), lines: lines };
+      await refreshCloudInfo();
+      render();
     },
 
     async wipe() {
@@ -4212,7 +4682,16 @@
     // Test seams: these let the suite verify real screen transitions and
     // report guards without copying the app's private state machine.
     _view() { return S.view; },
-    _setJobForTest(job) { S.job = job ? cloneRecord(job) : null; }
+    _setJobForTest(job) { S.job = job ? cloneRecord(job) : null; },
+    // v1.9.0 — drives the cloud screens without a real Google round trip,
+    // exactly as _setJobForTest drives a job card. The shape is the same
+    // one FB.onUser hands the app.
+    _setFbUserForTest(u) {
+      S.fbUser = u ? { uid: u.uid, email: u.email || '', name: u.name || '', photo: u.photo || '' } : null;
+      render();
+    },
+    _setCloudForTest(latest) { S.cloud.latest = latest || null; render(); },
+    _cloudForTest() { return { user: S.fbUser, cloud: S.cloud, check: S.accountCheck }; }
   };
   window.ACT = ACT;
 
@@ -4288,6 +4767,14 @@
     S.user = await DB.getMeta('user');
     S.accounts = (await DB.getMeta('accounts')) || [];
     S.lastBackup = await DB.getMeta('lastBackup');
+    // What the cloud held last time we looked. The cache is only allowed
+    // to be shown when someone is signed in, and refreshCloudInfo()
+    // replaces it with the truth as soon as sign-in resolves.
+    const cachedCloud = await DB.getMeta('cloudBackup');
+    if (cachedCloud && cachedCloud.updatedAt) {
+      S.cloud.latest = cachedCloud;
+      S.cloud.fromCache = true;
+    }
     if (S.user && S.user.trade) S.trade = S.user.trade;
     await refreshJobs();
     await refreshEquipment();
@@ -4350,6 +4837,7 @@
           DB.setMeta('user', S.user);
         }
         hydrateEntitlement();
+        refreshCloudInfo();
         return;
       }
       // Back from Google without an account: say why, instead of quietly
@@ -4366,8 +4854,12 @@
         DB.setMeta('user', S.user);
       }
       if (u) hydrateEntitlement();
+      if (u) refreshCloudInfo();     // v1.9.0: what the cloud holds for THIS account
       if (u) FB.touchLastActive();   // Field HQ: last-active register, silent on failure
-      if (S.view === 'settings' || S.view === 'home') render();
+      // A fresh sign-in invalidates the last account check — its lines name
+      // the account that was signed in a moment ago.
+      S.accountCheck = null;
+      if (S.view === 'settings' || S.view === 'home' || S.view === 'boot') render();
     });
   }
 

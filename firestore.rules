@@ -77,6 +77,35 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    /* ---- cloud backup index (v1.9.0) --------------------------------- */
+
+    // One small document per account, sitting next to the backup bundle
+    // in Storage: when it was taken, how many jobs, how many photos, how
+    // big. It is the index the boot screen reads to say "a backup from
+    // 12 Oct is waiting" — reading it must not cost a 200 MB download.
+    //
+    // It carries no job data and no customer data: the bundle does, and
+    // the bundle is behind the storage rules. This document is a label.
+    match /backups/{uid} {
+      allow read: if isSelf(uid);
+
+      // You write your own label, and only your own, and it may contain
+      // nothing but these fields — so this document can never be turned
+      // into a second, unguarded copy of the register.
+      allow create, update: if isSelf(uid)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(
+             ['uid', 'email', 'jobs', 'photos', 'bytes', 'path', 'appVersion', 'updatedAt'])
+        && request.resource.data.bytes is int
+        && request.resource.data.jobs is int
+        && request.resource.data.photos is int
+        && request.resource.data.bytes >= 0;
+
+      // Deleting your own backup is your right — that is what "delete my
+      // data" has to mean.
+      allow delete: if isSelf(uid);
+    }
+
     /* ---- companies (the Business plan unit) -------------------------- */
 
     match /companies/{companyId} {

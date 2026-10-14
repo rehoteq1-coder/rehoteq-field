@@ -1,4 +1,4 @@
-# REHOTEQ Field — v1.4.1
+# REHOTEQ Field — v1.9.0
 
 **The field assistant for technicians.** *Diagnose it. Prove it. Get paid.*
 
@@ -141,18 +141,23 @@ npm install
 npm test
 ```
 
-511 automated checks across fourteen suites: a walkthrough of the screens and
+721 automated checks across fifteen suites: a walkthrough of the screens and
 actions, a backup round-trip, a **wiring audit** that scans inline handlers,
 a **domain guard**, catalog and icon parity checks, two simulated phones for
 team invite/join/assignment/update flows, worker-code login and acceptance,
-AI diagnosis safety/grounding/human-confirmation checks, and saved-account,
-owner-switch, Free-quota and wipe-persistence coverage. Run `npm test` after
-every change.
+AI diagnosis safety/grounding/human-confirmation checks, saved-account,
+owner-switch, Free-quota and wipe-persistence coverage, and the v1.9.0 cloud
+backup — including the zip engine checked against Python's `zipfile` in both
+directions, in the same run. Run `npm test` after every change.
 
-Two things are harness limits, not app bugs: jsdom has no canvas backend and
-never decodes images, and `fake-indexeddb` destroys `Blob` instances on clone —
-so photo *bytes* can't be round-tripped through the harness. The base64
-helpers are unit-tested directly to cover that gap.
+One thing is a harness limit, not an app bug: jsdom has no canvas backend and
+never decodes images.
+
+The fake-IndexedDB note from earlier releases is out of date, and Suite 13
+proves it: a real `Blob` round-trips through the harness intact, so the cloud
+backup test seeds a photo, packs it, unpacks it and compares the bytes. What
+fake-IndexedDB does destroy is jsdom's *own* `Blob` class on clone — the test
+seeds with the realm's real one for that reason.
 
 ## Next three steps
 
@@ -175,6 +180,56 @@ helpers are unit-tested directly to cover that gap.
 - ❌ Technician marketplace — a different company
 
 ## Changelog
+
+**v1.9.0** — **Per-user cloud backup and restore, one dependency-free zip engine,
+and an account self-diagnosis (which also carries the unshipped v1.8.4).**
+
+- **Settings → Backup → "Back up this phone to the cloud."** One tap while
+  signed in: the job cards, the photos, the profile and the crew are packed
+  into a single file and uploaded to **your own** Google account's storage
+  (`users/{uid}/cloud-backup/latest.zip`), with a small label
+  (`backups/{uid}`) so the app can say what is up there without downloading
+  it. The toast prints the date and the counts.
+- **Restore on a new or wiped phone.** Sign in with the same Google account
+  and tap **Restore from the cloud** — offered on the boot screen when a
+  backup is waiting — or Settings → Backup. It confirms first, then merges
+  rather than wipes: work done on this phone since the backup is not thrown
+  away.
+- **`zip.js` (new, no dependency, ~9 KB).** Writes stored entries and reads
+  stored *and* deflated ones, with CRC-32 on both sides: every entry is
+  checksummed on write and verified on read, and a photo whose checksum does
+  not match is refused rather than restored as a corrupt image. Verified
+  against Python's `zipfile` in both directions (Suite 13 does it in every
+  run, and does it again in CI). A backup is a plain zip: it opens on any
+  phone, laptop or customer's PC, so nobody is locked into this app.
+- **`BACKUP.pack()` / `BACKUP.unpack()` + `ACT.cloudBackup()` /
+  `ACT.cloudRestore()`** in `app.js`. Photos travel as files
+  (`photos/<id>.jpg`) instead of base64 inside JSON — a third smaller, and no
+  single giant string in memory on a phone with hundreds of photos. The old
+  `.json` backup from v1.8.x still restores: an upgrade must not strand a
+  technician's file.
+- **`firebase.js`**: `cloudLatest()`, `cloudUpload()`, `cloudDownload()`, and
+  `cloudErrText()` (a refused bucket says *"a backup belongs to the Google
+  account that made it"*, not "check your connection"). `firebase-storage` is
+  imported lazily, on first use — a technician who never signs in still
+  downloads no Firebase at all, and one who never backs up to the cloud never
+  downloads Storage either.
+- **Rules**: `firestore.rules` gets a `backups/{uid}` block gated to
+  `isSelf(uid)` with a fixed field list; `storage.rules` gets a dedicated
+  `users/{uid}/cloud-backup/{file}` block — same owner gate, 500 MB cap,
+  `application/zip` only. Both files must be re-published (see
+  `FIREBASE_PLAN.md`).
+- **v1.8.4 — Settings → Account self-diagnosis.** The card now prints the
+  Google account the phone is really signed in as and names the case that
+  caused three separate support reports: a profile email that differs from
+  the signed-in Google account, which is why an invite "did not act" and the
+  Field HQ row never appeared. A new **Account check** runs the real query —
+  signed-in account, profile email, server record, owner status, cloud backup
+  — and shows the answers on screen.
+- Service-worker cache bumped to **v43** (v41 was v1.8.3, v42 was skipped).
+  `zip.js` added to the shell cache and to the `deploy.yml` publish list —
+  a missing file there would ship a site that crashes on the first tap.
+- Verification: **721 automated checks across fifteen suites pass.**
 
 **v1.4.1** — **A larger Engineering & MEP catalog, durable Free quota, and Business worker logins.**
 

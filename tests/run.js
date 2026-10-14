@@ -145,7 +145,7 @@ async function suiteSurface(w) {
   eq(Object.values(w.DATA.JOB_TYPES).flat().length, 50, 'the job-type catalog has exactly 50 entries');
   eq(Object.keys(w.DATA.CHECKLISTS).length, 16, 'the checklist catalog has exactly 16 entries');
   eq(w.DATA.LIBRARY.length, 18, 'the troubleshooting library has exactly 18 guides');
-  eq(require(path.join(ROOT, 'package.json')).version, '1.8.3', 'package metadata is version 1.8.3');
+  eq(require(path.join(ROOT, 'package.json')).version, '1.9.0', 'package metadata is version 1.9.0');
 }
 
 /* =====================================================================
@@ -167,8 +167,9 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v41'/.test(swSrc),
-    'the service-worker cache is bumped to v41 for the release');
+  ok(/const CACHE = 'rehoteq-field-v43'/.test(swSrc),
+    'the service-worker cache is bumped to v43 for the release');
+  ok(/'zip\.js'/.test(swSrc), 'sw.js caches zip.js, or a restored phone cannot unpack offline');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -357,7 +358,7 @@ const OWNED = ['field.rehoteq.com', 'rehoteq.com'];
 // scanned. Note that functions/ is deliberately NOT here — it never
 // reaches a browser, which is the whole reason it may hold a secret.
 const SHIPPED = ['index.html', '404.html', 'config.js', 'app.js', 'data.js',
-                 'db.js', 'pdf.js', 'qr.js', 'report.js', 'sw.js',
+                 'db.js', 'pdf.js', 'zip.js', 'qr.js', 'report.js', 'sw.js',
                  'icons.js', 'firebase.js'];
 
 function stripComments(src) {
@@ -1964,6 +1965,510 @@ async function suiteAccountsQuota(w) {
   await sleep(30);
 }
 
+
+/* =====================================================================
+   SUITE 13 — cloud backup (v1.9.0)
+
+   Two things have to be true before a technician's whole working life may
+   ride in a cloud file: the file has to be openable by something other
+   than this app, and it has to be exactly what went in. So the zip engine
+   is checked against Python's zipfile in BOTH directions, and the pack /
+   unpack round trip is checked against real blobs in a real page.
+
+   The rest is honesty: no account, no cloud row; a declined confirmation
+   downloads nothing; a photo whose checksum does not match is refused
+   rather than handed over as a corrupt image.
+   ===================================================================== */
+// Written by python3's zipfile (ZIP_STORED and ZIP_DEFLATED), so the
+// reader is proved against an implementation that shares no code with it.
+const PY_STORED = 'UEsDBBQAAAAAANqiTl1qTRHXEQAAABEAAAAJAAAAaGVsbG8udHh0aGVsbG8gZnJvbSBweXRob25QSwMEFAAACAAA2qJOXZw8fWcRAAAAEQAAABEAAABuZXN0ZWQvbmHDr3ZlLnR4dMOcbmljb2RlIGJvZHkg4pyTUEsDBBQAAAAAANqiTl1zjAUpAAEAAAABAAAHAAAAYmluLmRhdAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v9QSwECFAMUAAAAAADaok5dak0R1xEAAAARAAAACQAAAAAAAAAAAAAAgAEAAAAAaGVsbG8udHh0UEsBAhQDFAAACAAA2qJOXZw8fWcRAAAAEQAAABEAAAAAAAAAAAAAAIABOAAAAG5lc3RlZC9uYcOvdmUudHh0UEsBAhQDFAAAAAAA2qJOXXOMBSkAAQAAAAEAAAcAAAAAAAAAAAAAAIABeAAAAGJpbi5kYXRQSwUGAAAAAAMAAwCrAAAAnQEAAAAA';
+const PY_DEFLATED = 'UEsDBBQAAAAIANqiTl1qTRHXEwAAABEAAAAJAAAAaGVsbG8udHh0y0jNyclXSCvKz1UoqCzJyM8DAFBLAwQUAAAICADaok5dnDx9ZxMAAAARAAAAEQAAAG5lc3RlZC9uYcOvdmUudHh0OzwnLzM5PyVVISk/pVLh0ZzJAFBLAwQUAAAACADaok5dc4wFKQUBAAAAAQAABwAAAGJpbi5kYXQBAAH//gABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v9QSwECFAMUAAAACADaok5dak0R1xMAAAARAAAACQAAAAAAAAAAAAAAgAEAAAAAaGVsbG8udHh0UEsBAhQDFAAACAgA2qJOXZw8fWcTAAAAEQAAABEAAAAAAAAAAAAAAIABOgAAAG5lc3RlZC9uYcOvdmUudHh0UEsBAhQDFAAAAAgA2qJOXXOMBSkFAQAAAAEAAAcAAAAAAAAAAAAAAIABfAAAAGJpbi5kYXRQSwUGAAAAAAMAAwCrAAAApgEAAAAA';
+
+function b64Bytes(w, b64) {
+  const bin = Buffer.from(b64, 'base64');
+  const out = new w.Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin[i];
+  return out;
+}
+function findSequence(hay, needle) {
+  for (let i = 0; i + needle.length <= hay.length; i++) {
+    let hit = true;
+    for (let k = 0; k < needle.length; k++) { if (hay[i + k] !== needle[k]) { hit = false; break; } }
+    if (hit) return i;
+  }
+  return -1;
+}
+
+async function suiteCloudBackup(w) {
+  describe('13. Cloud backup — one zip, one account');
+
+  const cp = require('child_process');
+  const os = require('os');
+  const indexSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const swSrc = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  const deployYml = fs.readFileSync(path.join(ROOT, '.github/workflows/deploy.yml'), 'utf8');
+  const fbSrc = fs.readFileSync(path.join(ROOT, 'firebase.js'), 'utf8');
+  const rulesSrc = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
+  const storageSrc = fs.readFileSync(path.join(ROOT, 'storage.rules'), 'utf8');
+  const appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+
+  /* ---- it ships ----------------------------------------------------- */
+  ok(/<script src="zip\.js"><\/script>/.test(indexSrc), 'index.html loads zip.js');
+  ok(w.__scripts.indexOf('zip.js') > 0 && w.__scripts.indexOf('zip.js') < w.__scripts.indexOf('app.js'),
+    'zip.js loads before app.js, so BACKUP exists when the first screen renders');
+  const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
+    .split(/\s+/).map(x => x.trim()).filter(Boolean);
+  ok(deployList.includes('zip.js'), 'deploy.yml publishes zip.js — the app would crash on a phone without it');
+  ok(swSrc.includes('rehoteq-field-v43'), 'the service-worker cache is bumped to v43');
+  ok(deployList.includes('app.js') && deployList.includes('firebase.js'),
+    'the rest of the shell still publishes');
+
+  /* ---- the zip engine, checked against Python's zipfile --------------- */
+  ok(typeof w.ZIP === 'object' && typeof w.ZIP.build === 'function' &&
+     typeof w.ZIP.read === 'function' && typeof w.ZIP.crc32 === 'function',
+    'ZIP is exposed to the page with build(), read() and crc32()');
+
+  eq(w.ZIP.crc32(new w.Uint8Array(0)), 0, 'CRC-32 of nothing is 0');
+  const enc = str => new w.TextEncoder().encode(str);
+  eq(w.ZIP.crc32(enc('hello')), 0x3610a686,
+    'CRC-32 of "hello" is 0x3610A686, the value python zlib.crc32 gives');
+  eq(w.ZIP.crc32(enc('The quick brown fox jumps over the lazy dog')), 0x414fa339,
+    'CRC-32 of the pangram is 0x414FA339 — reader and writer share one table');
+
+  // What we write, we read back byte for byte — including a UTF-8 name,
+  // a nested path and an empty file.
+  {
+    const entries = [
+      { name: 'backup.json', data: '{"format":"rehoteq-field-backup","version":2}' },
+      { name: 'photos/AB12.jpg', data: new w.Uint8Array([1, 2, 3, 250, 251, 252, 0, 255]) },
+      { name: 'photos/ünïcode-ÄÖ.jpg', data: 'unicode name' },
+      { name: 'empty.txt', data: '' }
+    ];
+    const archive = w.ZIP.build(entries, { date: new Date('2026-10-14T09:30:00Z') });
+    ok(archive.length > 0 && archive[0] === 0x50 && archive[1] === 0x4B,
+      'a built archive starts with the PK signature every unzip tool looks for');
+    const files = await w.ZIP.read(archive);
+    eq(files.length, 4, 'all four entries come back out of the archive');
+    const same = entries.every((e, i) => {
+      const want = typeof e.data === 'string' ? enc(e.data) : e.data;
+      const got = files[i].data;
+      return files[i].name === e.name && got.length === want.length &&
+        got.every((v, k) => v === want[k]) && files[i].crcOk;
+    });
+    ok(same, 'every entry survives the round trip with its CRC verified');
+    eq(files[1].size, 8, 'the entry records the real uncompressed size');
+    ok(files.every(f => f.method === 0), 'entries are STORED — a JPEG is compressed already');
+    ok(Object.prototype.toString.call(files[0].date) === '[object Date]' &&
+      files[0].date.getFullYear() === 2026,
+      'an entry keeps the date it was written with');
+  }
+
+  // Both fixtures were written by python3's zipfile.
+  const readFixture = async (host, b64, label) => {
+    const files = await host.ZIP.read(b64Bytes(host, b64));
+    eq(files.length, 3, 'zip.js reads a python-made ' + label + ' archive (3 entries)');
+    const hello = files.find(f => f.name === 'hello.txt');
+    eq(host.ZIP.toText(hello.data), 'hello from python',
+      'the ' + label + ' archive text entry comes back byte-identical');
+    ok(files.every(f => f.crcOk),
+      'every entry in the python ' + label + ' archive passes the CRC check');
+    const bin = files.find(f => f.name === 'bin.dat');
+    ok(bin.data.length === 256 && bin.data[0] === 0 && bin.data[255] === 255,
+      'the ' + label + ' archive binary entry is intact, not truncated');
+  };
+  await readFixture(w, PY_STORED, 'stored');
+  // A deflated archive needs DecompressionStream, which jsdom does not
+  // implement — the page's zip.js is the same file, so this runs it in
+  // Node, where the API exists. Chrome on a phone has it too.
+  if (typeof DecompressionStream === 'function') {
+    require(path.join(ROOT, 'zip.js'));
+    await readFixture(globalThis, PY_DEFLATED, 'deflated');
+  } else {
+    ok(false, 'this Node has no DecompressionStream, so the deflated fixture could not be read');
+  }
+
+  // And the other direction: python3 reads what zip.js wrote.
+  let pyOk = false;
+  try { cp.execFileSync('python3', ['-c', 'import zipfile'], { stdio: 'ignore' }); pyOk = true; }
+  catch (e) { pyOk = false; }
+  if (pyOk) {
+    const tmp = path.join(os.tmpdir(), 'rehoteq-zip-check.zip');
+    fs.writeFileSync(tmp, Buffer.from(w.ZIP.build([
+      { name: 'backup.json', data: '{"format":"rehoteq-field-backup"}' },
+      { name: 'photos/P1.jpg', data: new w.Uint8Array(Array.from({ length: 10 }, (x, i) => i)) }
+    ])));
+    const script = [
+      'import sys, zipfile',
+      'z = zipfile.ZipFile(sys.argv[1])',
+      'assert z.testzip() is None',
+      'assert z.namelist() == ["backup.json", "photos/P1.jpg"], z.namelist()',
+      'assert z.read("photos/P1.jpg") == bytes(range(10))',
+      'print("ok")'
+    ].join('\n');
+    let say = '';
+    try { say = cp.execFileSync('python3', ['-c', script, tmp], { encoding: 'utf8' }).trim(); }
+    catch (e) { say = 'python said: ' + String(e.message || e).split('\n')[0]; }
+    eq(say, 'ok', "python3's zipfile reads the archive zip.js wrote, CRC and all");
+  } else {
+    console.log('  - python3 is not on this machine; the fixtures carry the cross-check');
+  }
+
+  /* ---- the app side, on a fresh phone -------------------------------- */
+  const page = bootApp();
+  await sleep(150);
+  const put = (store, val) => page.DB.put(store, val);
+  const toastText = () => page.document.getElementById('toast').textContent || '';
+  const bodyText = () => page.document.body.textContent || '';
+  // Every suite shares one fake IndexedDB, so this phone starts clean.
+  for (const store of ['jobs', 'photos']) {
+    const rows = await page.DB.all(store);
+    for (const r of rows) await page.DB.del(store, r.id);
+  }
+  await page.DB.setMeta('lastBackup', null);
+
+  // A full job card, the shape the app actually writes: a restore brings
+  // back real work, not a stub that half-renders.
+  const jobCard = (id, ref, trade, name) => ({
+    id: id, ref: ref, trade: trade, jobType: 'Installation',
+    customer: { name: name, phone: '08031234567', address: '12 Ademola Street, Abuja' },
+    site: { address: '12 Ademola Street, Abuja', lat: 9.06, lng: 7.49 },
+    equipment: { category: 'Inverter', model: 'Felicity 5kVA', serial: 'SN-' + id,
+      capacity: '5kVA', installDate: '2026-09-01' },
+    instructions: '', fault: 'Battery not charging', diagnosis: '', work: '',
+    recommendation: '', materials: [], labour: 0, checklist: null,
+    signatures: { customer: null, technician: null },
+    status: 'completed', startedAt: '2026-10-01T08:00:00.000Z', completedAt: null,
+    lockedAt: null, createdAt: '2026-10-01T08:00:00.000Z', hashes: []
+  });
+  await put('jobs', jobCard('J1', 'RF-2026-00001', 'solar', 'Mrs Adeyemi'));
+  await put('jobs', jobCard('J2', 'RF-2026-00002', 'electrical', 'Mr Bala'));
+  // A real Blob as the database hands it back — the fake IndexedDB in this
+  // harness only preserves the Blob class, not jsdom's copy of it.
+  const photoBytes = new Uint8Array([255, 216, 255, 224, 9, 8, 7, 6, 5, 4, 3, 2]);
+  await put('photos', { id: 'P1', jobId: 'J1', stage: 'before', sha256: 'a1b2c3',
+    capturedAt: '2026-10-01T09:00:00.000Z', lat: 9.06, lng: 7.49,
+    blob: new Blob([photoBytes], { type: 'image/jpeg' }) });
+
+  ok(typeof page.BACKUP === 'object' && typeof page.BACKUP.pack === 'function',
+    'BACKUP is exposed to the page');
+
+  const packed = await page.BACKUP.pack();
+  ok(packed.blob instanceof page.Blob, 'BACKUP.pack() returns a zip Blob, not a wall of base64');
+  eq(packed.jobs, 2, 'the bundle knows how many job cards are in it');
+  eq(packed.photos, 1, 'the bundle knows how many photos it carries');
+  ok(packed.bytes > 100 && /\.zip$/.test(packed.name), 'the bundle has real bytes and a .zip name');
+
+  const archive = await page.ZIP.read(packed.blob);
+  const names = archive.map(f => f.name);
+  eq(names[0], 'backup.json', 'the archive opens with backup.json, so any unzip tool shows the story');
+  ok(names.includes('photos/P1.jpg'), 'the photo travels as a file of its own');
+  const manifestSrc = page.ZIP.toText(archive.find(f => f.name === 'backup.json').data);
+  const man = JSON.parse(manifestSrc);
+  eq(man.format, 'rehoteq-field-backup', 'the manifest carries the backup format');
+  eq(man.version, 2, 'the manifest is version 2 (zip), so v1 .json backups stay readable');
+  eq(man.jobs.length, 2, 'both job cards are in the manifest');
+  ok(!/data:image|base64/.test(manifestSrc),
+    'no photo is embedded as base64 in the manifest — that was the old weight');
+
+  const back = await page.BACKUP.unpack(packed.blob);
+  eq(back.jobs.length, 2, 'unpack() returns the job cards');
+  const p1 = back.photos.find(x => x.id === 'P1');
+  ok(!!p1 && !!p1.blob, 'unpack() returns the photo as a blob again');
+  const roundBytes = new Uint8Array(await p1.blob.arrayBuffer());
+  ok(roundBytes.length === photoBytes.length && roundBytes.every((v, i) => v === photoBytes[i]),
+    'the photo bytes survive the round trip untouched');
+  eq(p1.sha256, 'a1b2c3', 'the photo keeps its evidence metadata: hash, stage, timestamp, GPS');
+
+  let refused = '';
+  try { await page.BACKUP.unpack(page.ZIP.build([{ name: 'holiday.jpg', data: 'x' }])); }
+  catch (e) { refused = e.message; }
+  ok(/not a REHOTEQ backup/.test(refused), 'a zip that is not a backup is refused by name');
+
+  // A photo whose bytes were damaged in transit is never handed over as a
+  // corrupt image: the CRC catches it and the restore says so.
+  {
+    const marker = new page.Uint8Array([11, 22, 33, 44, 55, 66, 77, 88]);
+    const damaged = page.ZIP.build([
+      { name: 'backup.json', data: JSON.stringify({ format: 'rehoteq-field-backup', version: 2,
+        jobs: [{ id: 'J9' }], photos: [{ id: 'P9', file: 'photos/P9.jpg' }], photoCount: 1 }) },
+      { name: 'photos/P9.jpg', data: marker }
+    ]);
+    const at = findSequence(damaged, marker);
+    ok(at > 0, 'the test can find the photo bytes inside the archive to damage them');
+    damaged[at + 3] ^= 0xFF;
+    const damagedBack = await page.BACKUP.unpack(damaged);
+    eq(damagedBack.withImages, 0, 'a photo whose checksum does not match is refused, not handed over corrupt');
+    eq(damagedBack.damaged, 1, 'the restore counts the damaged photo instead of failing the whole backup');
+    eq(damagedBack.jobs.length, 1, 'and the rest of the backup still comes through');
+  }
+
+  /* ---- one tap, and only when somebody is signed in ------------------ */
+  page.ACT.go('settings');
+  await sleep(40);
+  ok(!/Back up this phone to the cloud/.test(bodyText()),
+    'with nobody signed in, Settings offers no cloud row — the local backup stays the whole story');
+  await page.ACT.cloudBackup();
+  ok(/Sign in first/.test(toastText()), 'a cloud backup with nobody signed in says to sign in, in words');
+
+  const uploads = [];
+  page.FB.cloudUpload = async (blob, meta) => { uploads.push({ blob, meta }); return true; };
+  page.FB.cloudLatest = async () => null;
+  page.FB.profile = async () => ({ plan: 'pro' });
+  page.ACT._setFbUserForTest({ uid: 'u1', email: 'toye@gmail.com', name: 'Toye' });
+
+  await page.ACT.cloudBackup();
+  eq(uploads.length, 1, 'one tap sends exactly one bundle');
+  ok(!!uploads[0].blob && uploads[0].meta.jobs === 2 && uploads[0].meta.photos === 1 && uploads[0].meta.bytes > 0,
+    'the upload carries the jobs, the photo and the byte count the label needs');
+  ok(/Backed up to the cloud/.test(toastText()) && /\d{2} \w{3} \d{4}/.test(toastText()),
+    'the toast says it worked and prints the date, not just a spinner');
+  const cloudState = page.ACT._cloudForTest().cloud;
+  ok(!!cloudState.latest && cloudState.latest.jobs === 2 && cloudState.latest.bytes > 0,
+    'the app records what is now in the cloud, so the card can tell the truth after a reload');
+
+  page.ACT.go('settings');
+  await sleep(40);
+  ok(/Saved \d{2} \w{3} \d{4} · 2 jobs · 1 photo/.test(bodyText()),
+    'the Backup card now shows the cloud copy: when, how many jobs, how many photos');
+
+  /* ---- the wiped phone ---------------------------------------------- */
+  // The same Google account, an empty database: exactly the phone that
+  // comes back from a repair, or the one that replaces a stolen one.
+  for (const store of ['jobs', 'photos']) {
+    const rows = await page.DB.all(store);
+    for (const r of rows) await page.DB.del(store, r.id);
+  }
+  let downloads = 0;
+  page.FB.cloudDownload = async () => { downloads++; return packed.blob; };
+
+  page.confirm = () => false;
+  await page.ACT.cloudRestore();
+  eq(downloads, 0, 'a restore that is not confirmed downloads nothing — the question comes first');
+
+  page.confirm = () => true;
+  await page.ACT.cloudRestore();
+  eq(downloads, 1, 'a confirmed restore downloads the backup, once');
+  const jobsBack = await page.DB.all('jobs');
+  eq(jobsBack.length, 2, 'the wiped phone has its job cards back');
+  const photosBack = await page.DB.all('photos');
+  ok(photosBack.length === 1 && !!photosBack[0].blob && photosBack[0].sha256 === 'a1b2c3',
+    'and its photo, blob and evidence metadata included');
+  ok(/Restored 2 jobs, 1 photos/.test(toastText()) && /backup of \d{2} \w{3} \d{4}/.test(toastText()),
+    'the restore toast says how much came back and which day the backup was from');
+
+  /* ---- the screens --------------------------------------------------- */
+  page.FB.cloudLatest = async () => null;
+  page.ACT._setCloudForTest(null);
+  page.ACT.go('settings');
+  await sleep(40);
+  ok(/Back up this phone to the cloud/.test(bodyText()) && /Nothing saved on this account yet/.test(bodyText()),
+    'signed in with nothing up there yet, the card says exactly that');
+
+  const label = { updatedAt: '2026-10-12T08:15:00.000Z', jobs: 12, photos: 31, bytes: 18 * 1024 * 1024 };
+  page.ACT._setCloudForTest(label);
+  await sleep(20);
+  ok(/Saved 12 Oct 2026/.test(bodyText()) && /12 jobs · 31 photos/.test(bodyText()),
+    'the card prints the date and what is inside the cloud backup');
+
+  page.ACT.go('boot');
+  await sleep(40);
+  ok(/Your work is in the cloud/.test(bodyText()) && /Restore from the cloud/.test(bodyText()),
+    'a signed-in phone with a backup waiting is offered the restore on the boot screen');
+  const restoreBtn = [...page.document.querySelectorAll('[onclick]')]
+    .find(b => (b.getAttribute('onclick') || '').includes('ACT.cloudRestore'));
+  ok(!!restoreBtn, 'the boot banner has a real tap target, not just a sentence');
+
+  page.ACT._setFbUserForTest(null);
+  page.ACT.go('boot');
+  await sleep(40);
+  ok(!/Your work is in the cloud/.test(bodyText()),
+    'signed out, the boot screen shows no cloud banner at all — it is never an advert');
+
+  /* ---- v1.8.4: whose account is this phone on? ----------------------- */
+  await page.DB.setMeta('accounts', [{ uid: 'a1', name: 'Toye', email: 'toye@rehoteq.com', trade: 'solar' }]);
+  await page.ACT.loginAccount('a1');
+  page.ACT._setFbUserForTest({ uid: 'u1', email: 'toye@gmail.com', name: 'Toye' });
+  page.ACT.go('settings');
+  await sleep(40);
+  ok(/Signed in with Google as/.test(bodyText()) && /toye@gmail\.com/.test(bodyText()),
+    'the Account card prints the Google account this phone is really signed in as (v1.8.4)');
+  ok(/Two different addresses on this phone/.test(bodyText()),
+    'two different addresses on one phone is named — the wrong-account theory, on the screen');
+
+  page.FB.profile = async () => ({ plan: 'pro' });
+  await page.ACT.accountCheck();
+  const check = page.ACT._cloudForTest().check;
+  const checkText = bodyText();
+  ok(/Google account signed in on this phone: toye@gmail\.com/.test(checkText),
+    'Account check names the signed-in Google account');
+  ok(/The profile in Settings says toye@rehoteq\.com/.test(checkText),
+    'Account check names the mismatch instead of leaving the technician to guess');
+  ok(/Server record found: plan pro/.test(checkText),
+    'Account check reports what the server says about the entitlement');
+  ok(!!check && check.lines.some(l => !l.ok),
+    'the check is not all-green when something really is wrong');
+
+  page.ACT._setFbUserForTest(null);
+  await page.ACT.accountCheck();
+  ok(/No Google account is signed in on this phone/.test(bodyText()),
+    'Account check on a signed-out phone says so plainly');
+
+  /* ---- firebase.js itself, against a fake SDK -------------------------
+     The cloud methods are the part that cannot be tested by reading the
+     source: what path the bytes land on, what the label says, and that a
+     signed-out phone is refused with a code the app can explain.         */
+  {
+    const cfgSrc = fs.readFileSync(path.join(ROOT, 'config.js'), 'utf8');
+    const withFakeImport = src => src.replace(/\bimport\(/g, '__imp(');
+    const makeCalls = () => ({ storageLoads: 0, uploads: [], sets: [], gets: [], docExists: true });
+    const fbPage = (calls, user) => {
+      const auth = { currentUser: user };
+      const mods = {
+        app: { initializeApp: c => ({ options: c }) },
+        auth: {
+          getAuth: () => auth,
+          onAuthStateChanged: (x, cb) => { setTimeout(() => cb(x.currentUser), 0); return () => {}; },
+          getRedirectResult: () => Promise.resolve(null),
+          GoogleAuthProvider: function () { this.setCustomParameters = () => {}; },
+          signInWithRedirect: () => new Promise(() => {}),
+          signOut: () => Promise.resolve()
+        },
+        firestore: {
+          getFirestore: () => ({ projectId: 'rehoteq-field' }),
+          doc: (db, coll, id) => ({ coll: coll, id: id }),
+          getDoc: () => Promise.resolve(calls.docExists
+            ? { exists: () => true, data: () => ({
+                jobs: 12, photos: 31, bytes: 4096, appVersion: '1.9.0',
+                updatedAt: { toDate: () => new Date('2026-10-12T08:15:00Z') } }) }
+            : { exists: () => false, data: () => ({}) }),
+          setDoc: (ref, data) => { calls.sets.push({ ref: ref, data: data }); return Promise.resolve(); },
+          serverTimestamp: () => 'SERVER-TS'
+        },
+        storage: {
+          getStorage: () => ({ bucket: 'rehoteq-field.appspot.com' }),
+          ref: (st, p) => ({ path: p }),
+          uploadBytes: (ref, blob, meta) => {
+            calls.uploads.push({ ref: ref, blob: blob, meta: meta });
+            return Promise.resolve({ ref: ref });
+          },
+          getBytes: ref => { calls.gets.push(ref.path); return Promise.resolve(new Uint8Array([80, 75, 3, 4])); }
+        }
+      };
+      const win = new JSDOM('<!DOCTYPE html><p>page</p>',
+        { url: 'https://field.rehoteq.com/', runScripts: 'outside-only', pretendToBeVisual: true }).window;
+      win.__imp = url => {
+        const name = /firebase-(\w+)\.js$/.exec(url)[1];
+        if (name === 'storage') calls.storageLoads++;
+        return Promise.resolve(mods[name]);
+      };
+      win.eval(cfgSrc);
+      win.eval(withFakeImport(fbSrc));
+      return win;
+    };
+
+    const calls = makeCalls();
+    const live = fbPage(calls, { uid: 'u7', email: 'toye@gmail.com', displayName: 'Toye' });
+    await live.FB.ready();          // loads the SDK…
+    await sleep(20);                // …and the auth event lands on the next tick
+    eq(live.FB.user() && live.FB.user().uid, 'u7', 'the fake SDK resolves a signed-in account');
+
+    const label = await live.FB.cloudLatest();
+    ok(label && label.jobs === 12 && label.photos === 31 && label.bytes === 4096,
+      'cloudLatest reads the label: counts and size, straight from the document');
+    eq(label.updatedAt, '2026-10-12T08:15:00.000Z',
+      'a Firestore Timestamp arrives as an ISO date the card can print');
+    eq(calls.storageLoads, 0,
+      'asking what is up there does not download the Storage module');
+
+    await live.FB.cloudUpload(new live.Blob([new Uint8Array([1, 2, 3])]),
+      { jobs: 12, photos: 31, bytes: 4096, appVersion: '1.9.0' });
+    eq(calls.uploads.length, 1, 'cloudUpload uploads exactly one file');
+    eq(calls.uploads[0].ref.path, 'users/u7/cloud-backup/latest.zip',
+      'the bundle lands on the signed-in account path the storage rules gate');
+    eq(calls.uploads[0].meta.contentType, 'application/zip',
+      'uploaded as application/zip, which is what the rules demand');
+    eq(calls.sets.length, 1, 'and writes exactly one label');
+    eq(calls.sets[0].ref.coll + '/' + calls.sets[0].ref.id, 'backups/u7',
+      'the label lands on backups/{uid}');
+    eq(calls.sets[0].data.jobs, 12, 'the label carries the job count');
+    eq(calls.sets[0].data.photos, 31, 'the label carries the photo count');
+    eq(calls.sets[0].data.bytes, 4096, 'the label carries the size, so the card can say "18 MB"');
+    eq(calls.sets[0].data.updatedAt, 'SERVER-TS',
+      'the date is the server\'s clock, not this phone\'s');
+    eq(calls.storageLoads, 1, 'firebase-storage is fetched once, on first use');
+
+    const got = await live.FB.cloudDownload();
+    ok(got && got.type === 'application/zip', 'cloudDownload hands the app a zip Blob');
+    eq(calls.gets[0], 'users/u7/cloud-backup/latest.zip',
+      'and it comes from the same path it was uploaded to');
+
+    const noDoc = makeCalls();
+    noDoc.docExists = false;
+    const empty = fbPage(noDoc, { uid: 'u8', email: 'new@example.com' });
+    await empty.FB.ready();
+    await sleep(20);
+    eq(await empty.FB.cloudLatest(), null,
+      'an account with no backup yet gets null, not an invented date');
+
+    const out = fbPage(makeCalls(), null);
+    await out.FB.ready();
+    await sleep(20);
+    let code = null;
+    await out.FB.cloudUpload(new out.Blob(['x'])).catch(e => { code = e.code; });
+    eq(code, 'rehoteq/not-signed-in',
+      'a signed-out upload is refused with a code, and the app turns it into a sentence');
+    let code2 = null;
+    await out.FB.cloudDownload().catch(e => { code2 = e.code; });
+    eq(code2, 'rehoteq/not-signed-in', 'and so is a signed-out download');
+    eq(await out.FB.cloudLatest(), null, 'asking as a signed-out phone answers null, never a throw');
+  }
+
+  /* ---- the cloud is gated: rules, paths, and a lazy Storage module ---- */
+  ok(/match \/backups\/\{uid\}/.test(rulesSrc), 'firestore.rules carry a rule block for the backup label');
+  const backupBlock = (rulesSrc.match(/match \/backups\/\{uid\}[\s\S]*?\n    \}/) || [''])[0];
+  ok(/allow read: if isSelf\(uid\);/.test(backupBlock),
+    'a backup label is readable by its owner and nobody else');
+  ok(/create, update: if isSelf\(uid\)/.test(backupBlock) && /hasOnly\(/.test(backupBlock),
+    'a backup label may only ever hold the fields it is meant to hold');
+  ok(/allow delete: if isSelf\(uid\);/.test(backupBlock),
+    'the owner may delete their own backup — that is what "delete my data" means');
+
+  const cloudStorage = (storageSrc.match(/match \/users\/\{uid\}\/cloud-backup\/\{file\}[\s\S]*?\n    \}/) || [''])[0];
+  ok(cloudStorage.length > 0, 'storage.rules have their own block for the cloud backup bundle');
+  ok(/request\.auth\.uid == uid/.test(cloudStorage), 'the bundle is scoped to the owning account');
+  ok(/500 \* 1024 \* 1024/.test(cloudStorage), 'the bundle is capped at 500 MB — one bug cannot fill the bucket');
+  ok(/contentType == 'application\/zip'/.test(cloudStorage), 'only a zip is accepted on that path');
+  ok(/size < 12 \* 1024 \* 1024/.test(storageSrc),
+    'the 12 MB photo rule is still there and still governs photos');
+
+  ok(typeof w.FB.cloudLatest === 'function' && typeof w.FB.cloudUpload === 'function' &&
+     typeof w.FB.cloudDownload === 'function',
+    'firebase.js exposes cloudLatest, cloudUpload and cloudDownload');
+  ok(/belongs to the Google account that made it/.test(w.FB.cloudErrText({ code: 'storage/unauthorized' })) &&
+     /Sign in with Google first/.test(w.FB.cloudErrText({ code: 'rehoteq/not-signed-in' })),
+    'a refused bucket says the backup belongs to another account, not "check your connection"');
+  ok(fbSrc.includes("'users/' + uid + '/' + BACKUP_PATH") &&
+     /BACKUP_PATH = 'cloud-backup\/latest\.zip'/.test(fbSrc),
+    'the bundle lives at users/{uid}/cloud-backup/latest.zip');
+  ok(/getDoc\(fs\.doc\(state\.db, 'backups', state\.user\.uid\)\)/.test(fbSrc),
+    'the label is read from backups/{uid}');
+  ok(fbSrc.indexOf('uploadBytes(ref, blob') < fbSrc.indexOf("setDoc(fs.doc(h.db, 'backups', uid)"),
+    'the zip is uploaded before the label is written, so a label never points at nothing');
+  ok(fbSrc.indexOf('function loadStorage') < fbSrc.indexOf("load('storage')"),
+    'firebase-storage is imported lazily, inside loadStorage()');
+  eq((swSrc.match(/const SHELL = \[([\s\S]*?)\]/) || ['', ''])[1].includes('gstatic'), false,
+    'the Storage SDK is not precached either');
+
+  ok(/APP_VERSION = '1\.9\.0'/.test(appSrc), 'the app knows it is v1.9.0');
+  ok(/Back up this phone to the cloud/.test(appSrc) && /Restore from the cloud/.test(appSrc) &&
+     /BACKUP\.pack\(\)/.test(appSrc) && /BACKUP\.unpack\(/.test(appSrc),
+    'the cloud rows are wired to the real pack and unpack, not to a description of them');
+  ok(/readJsonBackup/.test(appSrc) && /data\.format !== BACKUP\.FORMAT/.test(appSrc),
+    'an older v1 .json backup still opens — an upgrade must not strand a technicians file');
+  ok(/accept = '\.json,\.zip/.test(appSrc),
+    'the restore file picker accepts both the new zip and the old json');
+}
+
 /* =====================================================================
    run
    ===================================================================== */
@@ -2031,6 +2536,7 @@ async function suiteAccountsQuota(w) {
   await suiteAi(w);
   await suiteLandingAndOwner(w);
   await suiteAccountsQuota(w);
+  await suiteCloudBackup(w);
 
   /* ---- suite 10: admin page (Field HQ) ------------------------------ */
   suite = 'admin page';
@@ -2053,7 +2559,7 @@ async function suiteAccountsQuota(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v41'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v43'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');

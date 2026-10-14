@@ -258,6 +258,13 @@ firebase deploy --only firestore:rules,storage:rules
 Take the CLI path if you can. Rules that only exist pasted into a console tab
 are rules nobody can review or revert.
 
+**v1.9.0 added two more blocks — re-publish both files after deploying it.**
+Cloud backup writes one zip per account to `users/{uid}/cloud-backup/latest.zip`
+and one small label to `backups/{uid}`. Until the new rules are live, the app
+will refuse with *"The cloud refused this account"*, which is exactly what the
+rules are for: nothing on that path is reachable by anybody but its owner, and a
+bundle may not exceed 500 MB.
+
 ### The one rule that makes enforcement real
 
 In `firestore.rules`:
