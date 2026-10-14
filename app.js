@@ -2550,6 +2550,11 @@
             <span class="sl">Message REHOTEQ on WhatsApp<br>
               <span style="font-size:11px;color:var(--muted);font-weight:500">${esc(CONFIG.support.whatsappLabel)}</span></span>
             <span style="color:#94A3B8">›</span></div>
+          ${owner ? `
+          <div class="srow" onclick="ACT.openAdmin()"><span class="si">${ICON('shield-check', 17)}</span>
+            <span class="sl">Field HQ (admin only)<br>
+              <span style="font-size:11px;color:var(--muted);font-weight:500">Usage, users, internal feedback · owner email only</span></span>
+            <span style="color:#94A3B8">›</span></div>` : ''}
         </div>
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Data</div>
@@ -2559,7 +2564,7 @@
             <span class="sl" style="color:#DC2626">Delete everything on this device</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.7">
-          REHOTEQ Field v1.8.1 · PWA<br>Built for the people holding the phone.
+          REHOTEQ Field v1.8.2 · PWA<br>Built for the people holding the phone.
         </div>
       </div>`;
   };
@@ -3632,6 +3637,12 @@
 
     contact() {
       window.open(CONFIG.waUrl('Hello REHOTEQ — '), '_blank');
+    },
+    // Field HQ console (admin.html). The row only renders for the owner
+    // account; admin.html and firestore.rules keep the data owner-only even
+    // if someone reaches the page directly.
+    openAdmin() {
+      location.assign('admin.html');
     },
     // The internal feedback box: one note straight to the feedback
     // collection, which only the owner can read (firestore.rules).
