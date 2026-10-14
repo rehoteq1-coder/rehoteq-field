@@ -56,11 +56,6 @@
     return '<span class="pill ' + cls + '">' + label + '</span>';
   }
 
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
   function render(users) {
     var now = Date.now();
     var week = 0, paying = 0, trial = 0;
@@ -128,27 +123,58 @@
   }
 
   function load() {
+    // Capture who is asking NOW: on a poor network the session can drop
+    // mid-query, and by the time the error arrives FB.user() is already
+    // null — which used to print the paradox "signed in as [nobody]".
+    var me = FB.user();
+    if (!me) { show('signedout'); return; }
     FB.listUsers().then(render).catch(function (err) {
-      // TEMP DEBUG: surface the real Firestore error instead of swallowing it.
+      // The session dropped while the query was in flight. The honest
+      // card is "sign in again", not "not authorised".
+      if (!FB.user()) { show('signedout'); return; }
       var code = err && err.code ? String(err.code) : '';
       var msg = err && err.message ? String(err.message) : '';
       try { console.error('listUsers failed:', code, msg, err); } catch (e) {}
-      var who = FB.user() ? FB.user().email : '';
-      $('deniedEmail').textContent = who + (code || msg ? ' [debug: ' + (code || msg) + ']' : '');
+      var who = (me && me.email) || FB.user().email || '';
+      $('deniedEmail').textContent = who + ownerHint(who) +
+        (code || msg ? ' [debug: ' + (code || msg) + ']' : '');
       show('denied');
     });
     loadFeedback();
   }
 
+  // Name WHICH dead end a refused account hit: wrong Google account
+  // (switch accounts) or right account but Firestore still said no
+  // (the rules were probably never deployed). CONFIG rides along in
+  // admin.html but is absent in tests, hence the guard.
+  function ownerHint(who) {
+    var C = global.CONFIG;
+    if (!who || !C || typeof C.isOwner !== 'function') return '';
+    return C.isOwner(who)
+      ? ' — owner account, but Firestore said no (rules not deployed?)'
+      : ' — not the owner account (sign out and switch)';
+  }
+
   function start() {
     if (!FB.enabled()) { show('signedout'); return; }
-    FB.finishRedirect().then(function () {
-      FB.onUser(function (u) {
-        if (!u) { show('signedout'); return; }
-        load();          // the query is the authorisation check
-        FB.touchLastActive();
-      });
+    // Register FIRST, before finishRedirect() resolves. The signed-out
+    // event fires exactly once, and a listener that arrives after it
+    // hears nothing — the page sat on "Loading…" forever. (firebase.js
+    // now also answers late listeners at once; this ordering means we
+    // never depend on that safety net.)
+    FB.onUser(function (u) {
+      if (!u) { show('signedout'); return; }
+      load();          // the query is the authorisation check
+      FB.touchLastActive();
     });
+    FB.finishRedirect().catch(function () { /* no redirect pending, carry on */ });
+    // Safety net: on a network too poor to fetch the Firebase SDK at all,
+    // auth never resolves and the listener above never fires. Never leave
+    // the owner staring at "Loading…" — fall back to the sign-in card,
+    // whose button retries the whole chain.
+    setTimeout(function () {
+      if (!$('loading').hidden) show('signedout');
+    }, 15000);
   }
 
   $('signin').addEventListener('click', function () { FB.signIn(); });
