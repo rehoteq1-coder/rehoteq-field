@@ -145,7 +145,7 @@ async function suiteSurface(w) {
   eq(Object.values(w.DATA.JOB_TYPES).flat().length, 50, 'the job-type catalog has exactly 50 entries');
   eq(Object.keys(w.DATA.CHECKLISTS).length, 16, 'the checklist catalog has exactly 16 entries');
   eq(w.DATA.LIBRARY.length, 18, 'the troubleshooting library has exactly 18 guides');
-  eq(require(path.join(ROOT, 'package.json')).version, '1.8.2', 'package metadata is version 1.8.2');
+  eq(require(path.join(ROOT, 'package.json')).version, '1.8.3', 'package metadata is version 1.8.3');
 }
 
 /* =====================================================================
@@ -167,8 +167,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v40'/.test(swSrc),
-    'the service-worker cache is bumped to v40 for the release');
+  ok(/const CACHE = 'rehoteq-field-v41'/.test(swSrc),
+    'the service-worker cache is bumped to v41 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -1022,6 +1022,27 @@ async function suiteTeam(w) {
   eq((await T.applyInvite(inv.file)).error, 'runscrew', 'a crew cannot join a crew');
   eq((await T.applyInvite({ format: 'nope' })).error, 'notinvite', 'a non-invite is refused as such');
 
+  // --- the share sheet can be dismissed: the send buttons must say so --
+  // A tap that opens the share sheet and gets closed (or a platform that
+  // drops it) must never read as "sent": the invite stays waiting, and a
+  // platform-level share failure falls back to a download instead of
+  // silence.
+  Object.defineProperty(w.navigator, 'canShare', { configurable: true, value: () => true });
+  Object.defineProperty(w.navigator, 'share', { configurable: true,
+    value: async () => { throw new w.DOMException('The user aborted the sharing process.', 'AbortError'); } });
+  await w.ACT.resendInvite(inv.file.code);
+  ok((w.document.getElementById('toast').textContent || '').includes('Nothing was sent'),
+    'a dismissed share sheet tells the owner nothing was sent');
+  eq((await w.DB.getMeta('teamInvites')).filter(i => i.code === inv.file.code)[0].status,
+    'waiting', '...and the invite is still waiting, ready to send again');
+  Object.defineProperty(w.navigator, 'share', { configurable: true,
+    value: async () => { throw new Error('No target app'); } });
+  await w.ACT.resendInvite(inv.file.code);
+  ok((w.document.getElementById('toast').textContent || '').includes('Saved to Downloads'),
+    'a failed share falls back to Downloads instead of silence');
+  delete w.navigator.canShare;
+  delete w.navigator.share;
+
   const ownerSnap1 = await snapTeam(w);
   const companyId = ownerSnap1.company.id;
 
@@ -1038,6 +1059,28 @@ async function suiteTeam(w) {
   eq(accept.code, inv.file.code, 'the acceptance carries the invite code for matching');
   eq(accept.member.memberId, 'TECHPHONE1', '...and the technician\u2019s own uid');
   eq((await T.applyInvite(inv.file)).error, 'already', 'joining twice is refused');
+
+  // ...the same rule on the technician's phone: a dismissed sheet must
+  // not mark the acceptance sent, or the Send-acceptance button
+  // disappears and there is no way to send it again.
+  let shareCalls = 0, sharedAcceptance = null;
+  Object.defineProperty(w.navigator, 'canShare', { configurable: true, value: () => true });
+  Object.defineProperty(w.navigator, 'share', { configurable: true,
+    value: async () => { shareCalls++; throw new w.DOMException('The user aborted the sharing process.', 'AbortError'); } });
+  await w.ACT.sendAcceptance();
+  eq((await w.DB.getMeta('user')).memberOf.sent, false,
+    'a dismissed share sheet does not mark the acceptance sent');
+  eq(shareCalls, 1, 'the button still tried to share');
+  ok((w.document.getElementById('toast').textContent || '').includes('Nothing was sent'),
+    '...and the technician is told the send did not happen');
+  Object.defineProperty(w.navigator, 'share', { configurable: true,
+    value: async payload => { shareCalls++; sharedAcceptance = payload.files[0]; } });
+  await w.ACT.sendAcceptance();
+  eq(sharedAcceptance && sharedAcceptance.name, 'rehoteq-acceptance-' + inv.file.code + '.json',
+    'the retry shares the acceptance file');
+  delete w.navigator.canShare;
+  delete w.navigator.share;
+
   await T.markAcceptanceSent();
   eq((await w.DB.getMeta('user')).memberOf.sent, true, 'sending the acceptance is recorded');
   const techMember = JSON.parse(JSON.stringify(await w.DB.getMeta('user')));
@@ -2010,7 +2053,7 @@ async function suiteAccountsQuota(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v40'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v41'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
