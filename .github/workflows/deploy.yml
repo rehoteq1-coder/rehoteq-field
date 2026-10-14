@@ -33,6 +33,16 @@ jobs:
         with:
           node-version: '22'
       - run: npm install
+      - name: Check Firebase helper endpoints
+        run: |
+          BASE="https://rehoteq-field.firebaseapp.com/__"
+          report=""
+          for p in auth/handler auth/handler.js auth/experiments.js auth/iframe auth/iframe.js firebase/init.json auth/links auth/links.js; do
+            code=$(curl -sS -o /tmp/fb_out -w '%{http_code}' "$BASE/$p" || echo "ERR")
+            sz=$(wc -c < /tmp/fb_out 2>/dev/null || echo 0)
+            report="$report $p=$code($sz)"
+          done
+          echo "::notice title=FirebaseHelperProbe::$report"
       - name: Run the suite
         run: npm test
 
