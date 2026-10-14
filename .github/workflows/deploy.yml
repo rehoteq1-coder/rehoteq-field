@@ -33,16 +33,6 @@ jobs:
         with:
           node-version: '22'
       - run: npm install
-      - name: Check Firebase helper endpoints
-        run: |
-          BASE="https://rehoteq-field.firebaseapp.com/__"
-          report=""
-          for p in auth/handler auth/handler.js auth/experiments.js auth/iframe auth/iframe.js firebase/init.json auth/links auth/links.js; do
-            code=$(curl -sS -o /tmp/fb_out -w '%{http_code}' "$BASE/$p" || echo "ERR")
-            sz=$(wc -c < /tmp/fb_out 2>/dev/null || echo 0)
-            report="$report $p=$code($sz)"
-          done
-          echo "::notice title=FirebaseHelperProbe::$report"
       - name: Run the suite
         run: npm test
 
@@ -103,7 +93,21 @@ jobs:
           fetch_req auth/experiments.js auth/experiments.js
           fetch_req auth/iframe         auth/iframe.html
           fetch_req auth/iframe.js      auth/iframe.js
-          fetch_req firebase/init.json  firebase/init.json
+          if ! curl -fsSL --retry 3 "$BASE/firebase/init.json" -o "_site/__/firebase/init.json"; then
+            echo "::notice::$BASE/firebase/init.json returned 404 (no Firebase Hosting deploy); building firebase/init.json from config.js"
+            node -e '
+              const f = require("./config.js").firebase;
+              const init = {
+                apiKey: f.apiKey,
+                authDomain: f.authDomain,
+                projectId: f.projectId,
+                storageBucket: f.storageBucket,
+                messagingSenderId: f.messagingSenderId,
+                appId: f.appId
+              };
+              require("fs").writeFileSync("_site/__/firebase/init.json", JSON.stringify(init, null, 2) + "\n");
+            '
+          fi
 
           fetch_opt auth/links          auth/links.html
           fetch_opt auth/links.js       auth/links.js
@@ -153,3 +157,4 @@ jobs:
           check_endpoint "/__/auth/iframe"        "text/html" || failed=1
           check_endpoint "/__/firebase/init.json" "json"      || failed=1
           [ "$failed" -eq 0 ]
+          echo "::notice title=SmokeTest::Same-site sign-in endpoints verified (/__/auth/handler, /__/auth/iframe, /__/firebase/init.json)"
