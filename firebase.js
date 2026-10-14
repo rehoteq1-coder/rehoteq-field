@@ -19,10 +19,16 @@
   var VERSION = '13.0.0';
   var BASE = 'https://www.gstatic.com/firebasejs/' + VERSION + '/';
 
-  var state = { app: null, auth: null, db: null, mods: null, user: null, ready: false };
+  var state = { app: null, auth: null, db: null, storage: null, mods: null, user: null, ready: false };
   var loading = null;          // the in-flight init promise, so we load once
+  var storageLoading = null;   // firebase-storage, fetched only on first use
   var listeners = [];
   var redirectErr = null;      // why the sign-in this tab started did not finish
+
+  // Where a cloud backup lives. One bundle per account, overwritten on
+  // every backup — a backup is a snapshot, not an archive, and "latest"
+  // is the only one a restore should ever need to find.
+  var BACKUP_PATH = 'cloud-backup/latest.zip';
 
   function cfg() { return (global.CONFIG && global.CONFIG.firebase) || null; }
 
@@ -178,6 +184,68 @@
       name: u.displayName || '',
       photo: u.photoURL || ''
     };
+  }
+
+  // A Firestore Timestamp, a Date, a number or an ISO string all become an
+  // ISO string — the app only ever prints a backup's date, and it should
+  // not have to care which of the four it was handed.
+  function iso(v) {
+    if (!v) return null;
+    try {
+      if (typeof v === 'string') return v;
+      if (typeof v.toDate === 'function') return v.toDate().toISOString();
+      if (v instanceof Date) return v.toISOString();
+      if (typeof v === 'number') return new Date(v).toISOString();
+      if (typeof v.seconds === 'number') return new Date(v.seconds * 1000).toISOString();
+    } catch (e) { /* an unreadable date is null, never a crash */ }
+    return null;
+  }
+
+  /* ---- firebase-storage, fetched only when a backup needs it ---------
+     The same rule the SDK itself follows: a technician who never signs
+     in never downloads Firebase, and a technician who signs in but never
+     backs up to the cloud never downloads the Storage module either.
+     ------------------------------------------------------------------- */
+  function loadStorage() {
+    if (!enabled()) return Promise.reject(coded('rehoteq/not-enabled', 'Firebase is not enabled'));
+    if (!state.user) return Promise.reject(coded('rehoteq/not-signed-in', 'Sign in first'));
+    if (storageLoading) return storageLoading;
+
+    storageLoading = Promise.all([init(), load('storage')])
+      .then(function (m) {
+        var s = m[0], mod = m[1];
+        var st = mod.getStorage(s.app);
+        state.storage = st;
+        state.mods.storage = mod;
+        return { fs: s.mods.fs, mod: mod, st: st, db: s.db };
+      })
+      .catch(function (err) {
+        storageLoading = null;   // a failed fetch is retried, never cached
+        throw err && err.code
+          ? err
+          : coded('rehoteq/storage-unreachable',
+              'Could not load cloud storage. Check your data or Wi-Fi, then try again.', err);
+      });
+
+    return storageLoading;
+  }
+
+  // Sign in and Storage are separate failures with separate answers, so
+  // they read separately on screen.
+  function cloudErrText(err) {
+    var code = err && err.code;
+    if (code === 'rehoteq/not-signed-in') return 'Sign in with Google first — the backup belongs to your account.';
+    if (code === 'rehoteq/not-enabled') return 'The cloud is switched off in this build.';
+    if (code === 'rehoteq/storage-unreachable') return 'Could not reach cloud storage. Check your data or Wi-Fi, then try again.';
+    if (code === 'storage/unauthorized' || code === 'permission-denied') {
+      return 'The cloud refused this account. A backup belongs to the Google account that made it — sign in with that one.';
+    }
+    if (code === 'storage/object-not-found' || code === 'not-found') return 'There is no cloud backup on this account yet.';
+    if (code === 'storage/quota-exceeded') return 'Cloud storage is full. Tell REHOTEQ.';
+    if (code === 'storage/retry-limit-exceeded' || code === 'unavailable') return 'The upload did not finish — weak signal. Try again on a better connection.';
+    if (code === 'storage/canceled') return 'The backup was cancelled.';
+    var msg = String((err && err.message) || err || '');
+    return 'The cloud did not answer (' + (code || msg.slice(0, 80) || 'unknown') + '). Try again.';
   }
 
   /* ---- public surface ------------------------------------------------ */
@@ -342,6 +410,80 @@
           return out;
         });
     },
+
+    // ---- cloud backup (v1.9.0) ----------------------------------------
+    // One zip per account in Storage (users/{uid}/cloud-backup/latest.zip)
+    // and one small label document in Firestore (backups/{uid}) so the app
+    // can say when the backup was taken and how much is in it without
+    // downloading it. Both are readable and writable by that account and
+    // by nobody else — see firestore.rules and storage.rules.
+
+    // What is up there, or null. Resolves null rather than throwing when
+    // Firebase is off, signed out, offline or the label is not there yet:
+    // the Settings card must always render.
+    cloudLatest: function () {
+      if (!enabled() || !state.user || !state.db) return Promise.resolve(null);
+      var fs = state.mods.fs;
+      return fs.getDoc(fs.doc(state.db, 'backups', state.user.uid))
+        .then(function (snap) {
+          if (!snap || !snap.exists()) return null;
+          var d = snap.data() || {};
+          return {
+            updatedAt: iso(d.updatedAt),
+            jobs: Number(d.jobs) || 0,
+            photos: Number(d.photos) || 0,
+            bytes: Number(d.bytes) || 0,
+            path: d.path || null,
+            appVersion: d.appVersion || ''
+          };
+        })
+        .catch(function () { return null; });
+    },
+
+    // Upload the bundle, then write the label. The label is written last
+    // and on purpose: a half-finished upload must never leave a label
+    // pointing at a zip that is not there.
+    cloudUpload: function (blob, meta) {
+      if (!enabled() || !state.user) {
+        return Promise.reject(coded('rehoteq/not-signed-in', 'Sign in first'));
+      }
+      var uid = state.user.uid;
+      meta = meta || {};
+      return loadStorage().then(function (h) {
+        var ref = h.mod.ref(h.st, 'users/' + uid + '/' + BACKUP_PATH);
+        return h.mod.uploadBytes(ref, blob, { contentType: 'application/zip' })
+          .then(function () {
+            var fs = h.fs;
+            return fs.setDoc(fs.doc(h.db, 'backups', uid), {
+              uid: uid,
+              email: state.user.email || '',
+              jobs: Number(meta.jobs) || 0,
+              photos: Number(meta.photos) || 0,
+              bytes: Number(meta.bytes) || 0,
+              path: 'users/' + uid + '/' + BACKUP_PATH,
+              appVersion: String(meta.appVersion || ''),
+              updatedAt: fs.serverTimestamp()
+            });
+          });
+      }).then(function () { return true; });
+    },
+
+    // The zip back, as a Blob. Nothing is cached on the way through: a
+    // restore is a rare, deliberate act and it should get today's file.
+    cloudDownload: function () {
+      if (!enabled() || !state.user) {
+        return Promise.reject(coded('rehoteq/not-signed-in', 'Sign in first'));
+      }
+      var uid = state.user.uid;
+      return loadStorage().then(function (h) {
+        var ref = h.mod.ref(h.st, 'users/' + uid + '/' + BACKUP_PATH);
+        return h.mod.getBytes(ref).then(function (u8) {
+          return new Blob([u8], { type: 'application/zip' });
+        });
+      });
+    },
+
+    cloudErrText: cloudErrText,
 
     db: function () { return state.db; }
   };

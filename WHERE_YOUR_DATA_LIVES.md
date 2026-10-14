@@ -5,14 +5,21 @@ put twenty real customers on this app.
 
 ## Short version
 
-**Every job you create is stored on the phone you created it on. Nowhere else.**
+**Every job you create is stored on the phone you created it on.** Nothing
+leaves the phone unless you send it.
 
-There is no server. There is no cloud. There is no copy at REHOTEQ. Nobody —
-not me, not a hacker, not REHOTEQ — can see your customers from the internet,
-because your customers are not on the internet.
+There is no copy at REHOTEQ. Nobody — not me, not a hacker, not REHOTEQ — can
+see your customers from the internet, because they are not on the internet.
+
+Two things you can *choose* to do send a copy somewhere: sharing a backup file
+(WhatsApp, email, Drive), and — if you sign in with Google — **the cloud backup
+in v1.9.0**, which puts one file in **your own** Google account's storage. Both
+are started by you, on a tap, and both can be ignored forever: the app works
+completely without an account.
 
 That is why the app works in a basement with no signal and costs you nothing
-per job. It is also why **losing the phone loses the jobs.**
+per job. It is also why **losing the phone loses the jobs unless you backed
+them up.**
 
 ## What is on the phone
 
@@ -61,9 +68,29 @@ app will start nudging you once you have three or more jobs and have never
 backed up, and again after ten jobs if the backup is more than a week old. Do
 not wait for the nudge.
 
+## The cloud backup (v1.9.0) — your account, not REHOTEQ's
+
+Settings → Backup → **Back up this phone to the cloud**, if you are signed in
+with Google. One tap, and it says the date when it is done.
+
+Where it goes: `users/{your-uid}/cloud-backup/latest.zip` in the app's storage
+bucket, plus a small label in the database. Both are readable by **your Google
+account and nobody else** — the rules are written so that even REHOTEQ cannot
+read another technician's backup, and so that no one can overwrite yours.
+
+What it is: one zip with the job cards, the photos, your profile and your crew.
+It opens in any unzip tool on any phone or laptop — you are not locked in.
+
+What it is not: automatic. It is a tap, not a subscription. Nothing is uploaded
+until you tap it, and the file is overwritten the next time you do.
+
 ## Restoring
 
 Settings → Backup → restore. Pick the file the app gave you.
+
+On a new or wiped phone, sign in with the **same Google account** and tap
+**Restore from the cloud** — the boot screen offers it the moment you sign in
+if a backup is waiting. It asks before it changes anything.
 
 It **merges** rather than replaces: if the phone already has newer jobs, they
 survive. A restore cannot destroy work by accident.
@@ -82,6 +109,10 @@ simply resets. Harmless.
 
 ## If you want a copy that survives without thinking about it
 
-That needs a server, which means a monthly cost and a Supabase account. It is
-deliberately not built — see the "Out of scope" list in the README. Until
-then: **send the backup off the phone, and it is fine.**
+The cloud backup is the closest thing to it: one tap, and the copy is in your
+own Google account rather than on the phone. It is still a tap — make it the
+last thing you do before you put the phone in your pocket.
+
+Anything more automatic (a sync that happens by itself, on every job) needs a
+server with a monthly cost. It is deliberately not built — see the "Out of
+scope" list in the README. Until then: **tap the backup, and it is fine.**

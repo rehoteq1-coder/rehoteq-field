@@ -54,7 +54,7 @@ jobs:
         run: |
           mkdir -p _site
           for f in index.html 404.html admin.html admin.js config.js icons.js firebase.js \
-                   app.js data.js db.js pdf.js qr.js report.js styles.css \
+                   app.js data.js db.js pdf.js zip.js qr.js report.js styles.css \
                    sw.js manifest.webmanifest icon-192.png icon-512.png CNAME privacy.html; do
             if [ -f "$f" ]; then
               cp "$f" _site/

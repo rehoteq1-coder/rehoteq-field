@@ -33,6 +33,27 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
     }
 
+    // users/{uid}/cloud-backup/latest.zip
+    //
+    // The v1.9.0 cloud backup: one zip holding the job cards, the photos,
+    // the company profile and the crew record.
+    //
+    // The rule above (users/{uid}/{allPaths=**}) deliberately refuses it —
+    // 12 MB and image/* is what an evidence photo is, and a backup is
+    // neither. This block is the deliberate second decision: same owner
+    // gate, one file per account, a 500 MB ceiling so a bug or a hostile
+    // client cannot fill the bucket, and a content type that must be the
+    // zip we wrote. Storage grants access if ANY matching rule allows it,
+    // so nothing above is widened by this.
+    match /users/{uid}/cloud-backup/{file} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 500 * 1024 * 1024
+        && request.resource.contentType == 'application/zip';
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
     // Default deny for everything not explicitly above.
     match /{allPaths=**} {
       allow read, write: if false;
