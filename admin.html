@@ -39,6 +39,8 @@
   .center{text-align:center;padding:60px 20px}
   .center h1{font-size:20px;margin-bottom:8px;letter-spacing:-.02em}
   .center p{color:var(--muted);font-size:14px;margin-bottom:18px}
+  .center .err{max-width:520px;margin:0 auto 18px;padding:12px 14px;border-radius:12px;text-align:left;
+    background:#FEF2F2;border:1px solid #FECACA;color:#991B1B;font-size:13.5px}
   .muted{color:var(--muted)}
   .foot{font-size:11px;color:#94A3B8;text-align:center;padding:14px 0 4px}
   @media (max-width:600px){ td,th{padding:8px 6px} .hide-sm{display:none} }
@@ -59,6 +61,7 @@
   <div id="signedout" class="card center" hidden>
     <h1>Sign in to open Field HQ</h1>
     <p>Use the Google account you run REHOTEQ with.</p>
+    <p id="signinError" class="err" role="alert" hidden></p>
     <button class="btn" id="signin">Sign in with Google</button>
   </div>
 

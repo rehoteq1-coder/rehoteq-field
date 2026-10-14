@@ -250,12 +250,23 @@
     return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
   function uid() { return IMG.uid(); }
-  function toast(msg, sub) {
+  function toast(msg, sub, ms) {
     const t = $('toast');
     t.innerHTML = esc(msg) + (sub ? '<span class="s">' + esc(sub) + '</span>' : '');
     t.classList.add('show');
     clearTimeout(S.toastT);
-    S.toastT = setTimeout(() => t.classList.remove('show'), 2800);
+    S.toastT = setTimeout(() => t.classList.remove('show'), ms || 2800);
+  }
+  // Say WHY sign-in failed, and leave it up long enough to read. A refused
+  // web address is not "check your connection", and a trip to Google that
+  // comes back empty is not "nothing happened". firebase.js maps the code;
+  // an older cached copy without the mapper still gets an honest line.
+  function signInFailed(err) {
+    const F = window.FB;
+    const why = F && typeof F.authErrorText === 'function'
+      ? F.authErrorText(err)
+      : 'Check your connection and try again';
+    toast('Sign-in did not finish', why, 9000);
   }
   function go(view) { S.view = view; render(); }
 
@@ -3649,7 +3660,7 @@
       try {
         await window.FB.signIn();
       } catch (e) {
-        toast('Could not reach the sign-in page', 'Check your connection and try again');
+        signInFailed(e);   // the real reason, e.g. an address missing from the allow-list
       }
     },
     async enterApp() {
@@ -4312,7 +4323,13 @@
           DB.setMeta('user', S.user);
         }
         hydrateEntitlement();
+        return;
       }
+      // Back from Google without an account: say why, instead of quietly
+      // showing the Sign in button again. Only a sign-in this tab started
+      // is ever reported, so an ordinary open never sees this.
+      const err = typeof window.FB.redirectError === 'function' ? window.FB.redirectError() : null;
+      if (err) signInFailed(err);
     }).catch(function () { /* no redirect pending, carry on */ });
     window.FB.onUser(function (u) {
       S.fbUser = u;
