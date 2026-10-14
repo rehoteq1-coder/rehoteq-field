@@ -68,10 +68,11 @@
     'auth/redirect-cancelled-by-user': CANCELLED,
     'auth/web-storage-unsupported': NO_STORAGE,
     'auth/operation-not-supported-in-this-environment': NO_STORAGE,
-    // Back from Google with nobody signed in and no error at all. When the
-    // sign-in page lives on another domain (authDomain is firebaseapp.com,
-    // the app is field.rehoteq.com), a browser that partitions third-party
-    // storage blocks the hand-off and the SDK reports "no redirect".
+    // Back from Google with nobody signed in and no error at all. Before
+    // authDomain moved onto field.rehoteq.com (Firebase Option 4), the
+    // cross-site hop through firebaseapp.com caused browsers that partition
+    // third-party storage to drop the hand-off and report "no redirect";
+    // private tabs and in-app browsers can still block session storage.
     'rehoteq/redirect-empty': 'Google sent you back without signing you in. If you did not cancel, ' +
       'this browser blocked the hand-off from Google\'s sign-in page (private tabs, in-app browsers ' +
       'and strict tracking protection do this). Try again in your normal browser; if it keeps ' +

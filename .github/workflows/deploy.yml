@@ -66,6 +66,43 @@ jobs:
           cp .well-known/assetlinks.json _site/.well-known/
           echo "Published files:"; ls -la _site
 
+      # Firebase "Option 4" same-site sign-in: mirror Firebase's /__/ helper
+      # onto field.rehoteq.com so the Google redirect hand-off runs first-party.
+      # The extensionless pages (auth/handler, auth/iframe, auth/links) MUST be
+      # saved as .html: GitHub Pages serves an extensionless file as an
+      # application/octet-stream download, whereas it serves /__/auth/handler
+      # as text/html from _site/__/auth/handler.html.
+      - name: Fetch Firebase sign-in helper
+        run: |
+          set -euo pipefail
+          BASE="https://rehoteq-field.firebaseapp.com/__"
+          mkdir -p _site/__/auth _site/__/firebase
+
+          fetch_req() {
+            curl -fsSL --retry 3 "$BASE/$1" -o "_site/__/$2"
+          }
+          fetch_opt() {
+            if ! curl -fsSL --retry 3 "$BASE/$1" -o "_site/__/$2"; then
+              echo "::warning::optional $BASE/$1 not available; skipping"
+              rm -f "_site/__/$2"
+            fi
+          }
+
+          fetch_req auth/handler        auth/handler.html
+          fetch_req auth/handler.js     auth/handler.js
+          fetch_req auth/experiments.js auth/experiments.js
+          fetch_req auth/iframe         auth/iframe.html
+          fetch_req auth/iframe.js      auth/iframe.js
+          fetch_req firebase/init.json  firebase/init.json
+
+          fetch_opt auth/links          auth/links.html
+          fetch_opt auth/links.js       auth/links.js
+
+          grep -q '<script' _site/__/auth/handler.html
+          grep -q '<script' _site/__/auth/iframe.html
+          test "$(jq -r '.projectId' _site/__/firebase/init.json)" = "rehoteq-field"
+          ls -la _site/__/auth _site/__/firebase
+
       - uses: actions/configure-pages@v5
         # Tries to switch Pages on by itself using this workflow's token, so
         # the repo does not have to be prepared by hand first. If your account
@@ -78,3 +115,31 @@ jobs:
           path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Smoke-test same-site sign-in
+        run: |
+          set -euo pipefail
+          check_endpoint() {
+            local path="$1" want_type="$2"
+            local attempt
+            for attempt in $(seq 1 18); do
+              local url="https://field.rehoteq.com${path}?cb=$(date +%s)-${attempt}"
+              local meta code ctype
+              meta=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' "$url" || true)
+              code="${meta%% *}"
+              ctype="${meta#* }"
+              if [ "$code" = "200" ] && echo "$ctype" | grep -qi "$want_type"; then
+                echo "OK $path -> HTTP $code ($ctype) on attempt $attempt"
+                return 0
+              fi
+              echo "Attempt $attempt/18: $path returned HTTP $code ($ctype); retrying in 10s..."
+              sleep 10
+            done
+            echo "::error::Smoke test failed for https://field.rehoteq.com${path} (expected 200 + $want_type)"
+            return 1
+          }
+          failed=0
+          check_endpoint "/__/auth/handler"       "text/html" || failed=1
+          check_endpoint "/__/auth/iframe"        "text/html" || failed=1
+          check_endpoint "/__/firebase/init.json" "json"      || failed=1
+          [ "$failed" -eq 0 ]

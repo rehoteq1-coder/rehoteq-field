@@ -102,7 +102,11 @@
       // offline-native with no account.
       enabled: true,
       apiKey: 'AIzaSyApTJ1tHCUoaFfdPiq2j7j79qOOserw9vY',
-      authDomain: 'rehoteq-field.firebaseapp.com',
+      // Same-site sign-in (Firebase Option 4): deploy.yml publishes
+      // /__/auth/* and /__/firebase/init.json on field.rehoteq.com so
+      // browsers that partition third-party storage do not drop the
+      // Google sign-in hand-off. Rollback: 'rehoteq-field.firebaseapp.com'.
+      authDomain: DOMAIN,
       projectId: 'rehoteq-field',
       storageBucket: 'rehoteq-field.firebasestorage.app',
       messagingSenderId: '1083351168714',

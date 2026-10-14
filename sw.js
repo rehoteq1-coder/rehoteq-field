@@ -2,7 +2,7 @@
    Cache the app shell so the technician can open the app in a basement,
    on a rooftop, or anywhere else the network has given up. */
 // Bump this on every deploy, or installed phones keep serving the old app.
-const CACHE = 'rehoteq-field-v38';
+const CACHE = 'rehoteq-field-v39';
 const SHELL = [
   './', 'index.html', '404.html', 'admin.html', 'admin.js', 'styles.css', 'config.js', 'icons.js', 'data.js', 'qr.js',
   'pdf.js', 'db.js', 'report.js', 'firebase.js', 'app.js', 'manifest.webmanifest',
@@ -21,16 +21,25 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Firebase's same-site sign-in helper lives under /__/ (/__/auth/handler,
+// /__/auth/iframe, /__/firebase/init.json). Never cache it and never serve
+// the offline index.html fallback in its place.
+function isAuthHelper(url) {
+  const u = new URL(url);
+  return u.origin === self.location.origin && u.pathname.indexOf('/__/') === 0;
+}
+
 // Same-origin shell, plus the Firebase SDK once it has actually been
 // asked for. Nothing else from a third party is stored.
 function isCacheable(url) {
   const u = new URL(url);
-  if (u.origin === self.location.origin) return true;
+  if (u.origin === self.location.origin) return u.pathname.indexOf('/__/') !== 0;
   return u.origin === 'https://www.gstatic.com' && u.pathname.indexOf('/firebasejs/') === 0;
 }
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  if (isAuthHelper(e.request.url)) return;
   e.respondWith(
     caches.match(e.request).then(hit => {
       if (hit) {

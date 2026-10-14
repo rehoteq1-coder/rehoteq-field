@@ -115,6 +115,27 @@ Cloudflare → rehoteq.com → **DNS → Records → Add record**
    can take up to an hour)
 3. Open **https://field.rehoteq.com** on your phone → ⋮ → **Install app**
 
+### E. Let Google sign-in come back to field.rehoteq.com
+Because `authDomain` in `config.js` points at `field.rehoteq.com` (Firebase
+"Option 4" same-site sign-in, so browsers do not drop the login across sites),
+Google's OAuth client must allow `field.rehoteq.com` as a redirect target:
+
+1. Open the **Google Cloud console** → select project **`rehoteq-field`**
+2. Go to **APIs & Services → Credentials**
+3. Under **OAuth 2.0 Client IDs**, open **"Web client (auto created by Google Service)"**
+4. Under **Authorized JavaScript origins**, add:
+   - `https://field.rehoteq.com`
+5. Under **Authorized redirect URIs**, add:
+   - `https://field.rehoteq.com/__/auth/handler`
+6. Click **Save** *(can take 5 minutes to a few hours to take effect)*
+7. If Google asks, go to **Google Auth Platform → Branding → Authorized domains**
+   and add `rehoteq.com`
+
+> **If you see `Error 400: redirect_uri_mismatch`:** the step above isn't done
+> yet (or Google is still applying it). For an immediate one-line rollback in
+> `config.js`, change `authDomain: DOMAIN` back to
+> `authDomain: 'rehoteq-field.firebaseapp.com'`.
+
 ### Test that it worked
 - `https://field.rehoteq.com` → the app opens
 - `https://field.rehoteq.com/v/RF202600184` → the "Service report check" page
