@@ -19,7 +19,7 @@
   var VERSION = '13.0.0';
   var BASE = 'https://www.gstatic.com/firebasejs/' + VERSION + '/';
 
-  var state = { app: null, auth: null, db: null, mods: null, user: null };
+  var state = { app: null, auth: null, db: null, mods: null, user: null, ready: false };
   var loading = null;          // the in-flight init promise, so we load once
   var listeners = [];
 
@@ -60,6 +60,11 @@
         state.mods = { app: app_, auth: auth_, fs: fs_ };
         auth_.onAuthStateChanged(state.auth, function (u) {
           state.user = u ? shape(u) : null;
+          // From this moment on, null means SIGNED OUT, not unknown. A
+          // listener that arrives after this point gets the answer at
+          // once (see onUser) instead of waiting for an event that has
+          // already fired and will never fire again.
+          state.ready = true;
           listeners.forEach(function (fn) {
             try { fn(state.user); } catch (e) { /* one bad listener must not stop the rest */ }
           });
@@ -100,10 +105,17 @@
     user: function () { return state.user; },
 
     // Register interest in sign-in state. Fires immediately with the
-    // current state, then on every change.
+    // current state once auth has resolved, then on every change.
     onUser: function (fn) {
       listeners.push(fn);
-      if (state.user !== null) {
+      // A listener that arrives AFTER the auth event must still hear the
+      // answer — even when the answer is "nobody is signed in". Before
+      // this, only a signed-in user triggered the immediate callback, so
+      // a late listener on a signed-out browser waited forever. That was
+      // the Field HQ outage of Oct 2026: admin.js registered inside
+      // finishRedirect's .then(), after the signed-out event had already
+      // fired, and the page sat on "Loading…" for ever.
+      if (state.ready) {
         try { fn(state.user); } catch (e) {}
       } else if (enabled()) {
         init().catch(function () { /* stay signed out */ });

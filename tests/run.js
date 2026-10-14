@@ -159,8 +159,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v35'/.test(swSrc),
-    'the service-worker cache is bumped to v35 for the release');
+  ok(/const CACHE = 'rehoteq-field-v37'/.test(swSrc),
+    'the service-worker cache is bumped to v37 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -2002,7 +2002,7 @@ async function suiteAccountsQuota(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v35'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v37'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
@@ -2011,6 +2011,122 @@ async function suiteAccountsQuota(w) {
   ok(/allow read, update, delete: if isOwner\(\);\s*\}\s*\n\s*\/\* ---- everything else/.test(rulesSrc),
     'only the owner may read feedback');
   ok(adminJs.includes('FB.listFeedback'), 'Field HQ displays internal feedback');
+
+  /* ---- the Oct 2026 "stuck on Loading" outage ------------------------ */
+  // The admin page sat on "Loading…" forever for a signed-out visitor:
+  // the signed-out auth event fired while no listener was registered,
+  // and a listener that arrived afterwards never heard anything.
+  ok(/ready:\s*false/.test(fbSrc),
+    'firebase.js tracks whether auth state has resolved yet');
+  ok(/state\.ready\s*=\s*true/.test(fbSrc),
+    'firebase.js marks auth resolved the moment the event fires');
+  ok(/if\s*\(state\.ready\)/.test(fbSrc),
+    'onUser answers a late listener at once, even when signed out');
+  ok(adminJs.indexOf('FB.onUser') > 0 &&
+     adminJs.indexOf('FB.onUser') < adminJs.indexOf('FB.finishRedirect'),
+    'admin.js registers its auth listener without waiting for finishRedirect');
+  ok(/setTimeout\(function \(\) \{\s+if \(!\$\('loading'\)\.hidden\) show\('signedout'\)/.test(adminJs),
+    'admin.js has a safety net so Loading can never stick forever');
+
+  // Behavioural: reproduce the race with a stub FB whose finishRedirect()
+  // NEVER resolves. Under the old code onUser was registered inside its
+  // .then(), so no listener ever existed and the page never left Loading.
+  {
+    const dom = new JSDOM(adminHtml, {
+      url: 'https://field.rehoteq.com/admin.html',
+      runScripts: 'outside-only',
+      pretendToBeVisual: true
+    });
+    const a = dom.window;
+    let captured = null;
+    a.FB = {
+      enabled: () => true,
+      finishRedirect: () => new Promise(() => {}),   // never resolves: the race
+      onUser: fn => { captured = fn; return fn; },
+      listUsers: () => Promise.resolve([]),
+      listFeedback: () => Promise.resolve([]),
+      touchLastActive: () => Promise.resolve(),
+      signIn: () => Promise.resolve(),
+      signOut: () => Promise.resolve(),
+      user: () => null
+    };
+    a.eval(adminJs);
+    ok(typeof captured === 'function',
+      'admin.js registers its auth listener even when finishRedirect never resolves');
+    if (typeof captured === 'function') {
+      captured(null);   // nobody signed in
+      ok(a.document.getElementById('signedout').hidden === false,
+        'a signed-out visitor gets the Sign in card, never a stuck Loading screen');
+      ok(a.document.getElementById('loading').hidden === true,
+        'the Loading card clears once auth answers');
+    }
+    dom.window.close();
+  }
+
+  // The denied card tells the truth. Reported Oct 2026: after a refresh
+  // the page showed "signed in as [debug: permission-denied]" with a
+  // BLANK email — the session had dropped mid-query, and the error card
+  // read the (now null) user instead of the one that asked.
+  ok(/var me = FB\.user\(\);/.test(adminJs),
+    'admin.js captures the signed-in account before querying');
+  ok(/function ownerHint/.test(adminJs),
+    'admin.js names which dead end a refused account hit');
+
+  {
+    const dom = new JSDOM(adminHtml, {
+      url: 'https://field.rehoteq.com/admin.html',
+      runScripts: 'outside-only',
+      pretendToBeVisual: true
+    });
+    const a = dom.window;
+    a.console.error = () => {};   // the rejections below are the test; keep the output clean
+    let stubUser = null;
+    let captured2 = null;
+    a.CONFIG = { isOwner: e => /@gmail\.com$/.test(e || '') && (e || '').startsWith('rehoteq') };
+    a.FB = {
+      enabled: () => true,
+      finishRedirect: () => Promise.resolve(null),
+      onUser: fn => { captured2 = fn; return fn; },
+      listUsers: () => Promise.reject(Object.assign(new Error('denied'), { code: 'permission-denied' })),
+      listFeedback: () => Promise.resolve([]),
+      touchLastActive: () => Promise.resolve(),
+      signIn: () => Promise.resolve(),
+      signOut: () => Promise.resolve(),
+      user: () => stubUser
+    };
+    a.eval(adminJs);
+    const deniedText = () => a.document.getElementById('deniedEmail').textContent || '';
+
+    // Case A: signed in with a non-owner account — the card names it.
+    stubUser = { uid: 'u1', email: 'someone@gmail.com', name: '', photo: '' };
+    captured2(stubUser);
+    await sleep(30);
+    ok(a.document.getElementById('denied').hidden === false,
+      'a refused account sees Not authorised');
+    ok(deniedText().includes('someone@gmail.com'),
+      'the Not authorised card names the signed-in account');
+    ok(deniedText().includes('not the owner account'),
+      'a non-owner account is told to switch accounts');
+
+    // Case B: owner account, Firestore still says no — the card says why.
+    stubUser = { uid: 'u2', email: 'rehoteq@gmail.com', name: '', photo: '' };
+    captured2(stubUser);
+    await sleep(30);
+    ok(deniedText().includes('rehoteq@gmail.com') && deniedText().includes('rules not deployed?'),
+      'an owner account that is still refused is pointed at the missing rules');
+
+    // Case C: the session drops between the query and the error — the
+    // honest card is Sign in, never a blank "signed in as [nobody]".
+    stubUser = { uid: 'u1', email: 'someone@gmail.com', name: '', photo: '' };
+    captured2(stubUser);
+    stubUser = null;                 // session drops before the error lands
+    await sleep(30);
+    ok(a.document.getElementById('signedout').hidden === false,
+      'a session that drops mid-query routes to Sign in, not a blank Not authorised');
+    ok(a.document.getElementById('denied').hidden === true,
+      'the Not authorised card does not overwrite the Sign in card');
+    dom.window.close();
+  }
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);
