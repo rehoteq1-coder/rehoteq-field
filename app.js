@@ -1121,7 +1121,10 @@
   }
 
   // Team files leave the phone the same way backups do: the share sheet
-  // when the device has one, Downloads when it does not.
+  // when the device has one, Downloads when it does not. A share the user
+  // dismisses (or the platform drops) is NOT a sent file: the caller gets
+  // false and a line on screen, so the button stays live for a retry and
+  // nothing downstream is marked "sent" on a promise the phone never kept.
   async function shareTeamFile(obj, filename, sentMsg) {
     const json = JSON.stringify(obj);
     const file = new File([json], filename, { type: 'application/json' });
@@ -1130,7 +1133,15 @@
         await navigator.share({ files: [file], title: filename });
         toast(sentMsg || 'Sent', 'Choose WhatsApp from the share sheet');
         return true;
-      } catch (e) { return false; }
+      } catch (e) {
+        if (e && e.name === 'AbortError') {
+          toast('Nothing was sent', 'The share sheet closed — tap again and choose WhatsApp');
+          return false;
+        }
+        // A real share failure (no target app, the WebView dropped the
+        // sheet): fall through to the download path so the file still
+        // leaves the phone instead of vanishing silently.
+      }
     }
     const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
     const a = document.createElement('a');
@@ -2564,7 +2575,7 @@
             <span class="sl" style="color:#DC2626">Delete everything on this device</span><span style="color:#94A3B8">›</span></div>
         </div>
         <div class="center" style="font-size:10.5px;color:#94A3B8;line-height:1.7">
-          REHOTEQ Field v1.8.2 · PWA<br>Built for the people holding the phone.
+          REHOTEQ Field v1.8.3 · PWA<br>Built for the people holding the phone.
         </div>
       </div>`;
   };
@@ -4083,7 +4094,12 @@
     async sendAcceptance() {
       const f = TEAM.acceptanceFile();
       if (!f) return toast('Nothing to send', 'Join a crew first');
-      await shareTeamFile(f, 'rehoteq-acceptance-' + f.code + '.json', 'Acceptance sent');
+      // Only a share that actually happened marks the acceptance sent. A
+      // dismissed sheet leaves the button up, so the technician taps it
+      // again instead of the send vanishing with no way to retry — and
+      // the oga's dashboard never waiting on a file that was never sent.
+      const sent = await shareTeamFile(f, 'rehoteq-acceptance-' + f.code + '.json', 'Acceptance sent');
+      if (!sent) return;
       await TEAM.markAcceptanceSent();
       render();
     },
