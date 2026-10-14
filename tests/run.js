@@ -167,8 +167,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v38'/.test(swSrc),
-    'the service-worker cache is bumped to v38 for the release');
+  ok(/const CACHE = 'rehoteq-field-v39'/.test(swSrc),
+    'the service-worker cache is bumped to v39 for the release');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
   ok(typeof w.ICONS === 'object', 'ICONS is exposed to the page');
@@ -2010,7 +2010,7 @@ async function suiteAccountsQuota(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v38'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v39'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
@@ -2403,6 +2403,124 @@ async function suiteAccountsQuota(w) {
   process.off('unhandledRejection', onStray);
   ok(stray.length === 0, 'no sign-in failure vanishes as an unhandled rejection',
     stray.map(r => (r && r.code) || String(r)).join(', '));
+
+  /* ---- suite 12: same-site sign-in (Firebase Option 4) ---------------- */
+  describe('12. Same-site sign-in');
+  {
+    const vm = require('vm');
+    const deployYml = fs.readFileSync(path.join(ROOT, '.github/workflows/deploy.yml'), 'utf8');
+    const deployMd = fs.readFileSync(path.join(ROOT, 'DEPLOY.md'), 'utf8');
+    const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const page404 = fs.readFileSync(path.join(ROOT, '404.html'), 'utf8');
+
+    // authDomain must be this site OR the rollback value, so a rollback is
+    // never blocked by the tests.
+    const allowedAuthDomains = [w.CONFIG.domain, 'rehoteq-field.firebaseapp.com'];
+    ok(allowedAuthDomains.includes(w.CONFIG.firebase.authDomain),
+      'CONFIG.firebase.authDomain is this site or the firebaseapp.com rollback (' + w.CONFIG.firebase.authDomain + ')');
+    ok(cfgSrc.includes('rehoteq-field.firebaseapp.com') &&
+       /authDomain:\s*(DOMAIN|'field\.rehoteq\.com'|'rehoteq-field\.firebaseapp\.com')/.test(cfgSrc),
+      'config.js documents the firebaseapp.com rollback alongside authDomain');
+
+    // deploy.yml downloads the Firebase /__/ helper into _site/__/
+    ok(/https:\/\/rehoteq-field\.firebaseapp\.com\/__/.test(deployYml) &&
+       /set -euo pipefail/.test(deployYml) &&
+       /curl -fsSL --retry 3/.test(deployYml),
+      'deploy.yml downloads from rehoteq-field.firebaseapp.com/__ with set -euo pipefail and curl -fsSL --retry 3');
+    const reqHelperFiles = [
+      'auth/handler.html', 'auth/handler.js', 'auth/experiments.js',
+      'auth/iframe.html', 'auth/iframe.js', 'firebase/init.json'
+    ];
+    ok(reqHelperFiles.every(p => deployYml.includes(p)),
+      'deploy.yml fetches all required /__/ helper files and saves extensionless pages as .html');
+    ok(deployYml.includes('auth/links.html') &&
+       deployYml.includes('auth/links.js') &&
+       deployYml.includes('<script') &&
+       /jq[\s\S]*projectId[\s\S]*rehoteq-field/.test(deployYml),
+      'deploy.yml handles optional auth/links and checks <script in handler/iframe plus init.json projectId via jq');
+
+    // deploy.yml post-deploy smoke test
+    const iDeployPages = deployYml.indexOf('deploy-pages');
+    const iSmoke = deployYml.indexOf('Smoke-test same-site sign-in');
+    ok(iDeployPages > 0 && iSmoke > iDeployPages &&
+       deployYml.includes('/__/auth/handler') &&
+       deployYml.includes('/__/auth/iframe') &&
+       deployYml.includes('/__/firebase/init.json') &&
+       deployYml.includes('text/html') &&
+       deployYml.includes('?cb='),
+      'deploy.yml runs "Smoke-test same-site sign-in" after deploy-pages with cache-busting and failure tracking');
+
+    // Run the real sw.js in a vm and verify /__/ URLs are ignored while app.js is served
+    const listeners = {};
+    const putCalls = [];
+    const sandbox = {
+      URL,
+      Promise,
+      self: {
+        location: { origin: 'https://field.rehoteq.com' },
+        skipWaiting: () => Promise.resolve(),
+        clients: { claim: () => Promise.resolve() },
+        addEventListener: (type, fn) => { listeners[type] = fn; }
+      },
+      caches: {
+        match: req => {
+          const u = typeof req === 'string' ? req : req.url;
+          if (u.endsWith('/app.js')) return Promise.resolve({ ok: true, body: 'cached-app-js', clone() { return this; } });
+          if (u === 'index.html') return Promise.resolve({ ok: true, body: 'offline-shell' });
+          return Promise.resolve(null);
+        },
+        open: () => Promise.resolve({
+          addAll: () => Promise.resolve(),
+          put: (req) => { putCalls.push(typeof req === 'string' ? req : req.url); return Promise.resolve(); }
+        }),
+        keys: () => Promise.resolve([]),
+        delete: () => Promise.resolve(true)
+      },
+      fetch: req => {
+        const u = typeof req === 'string' ? req : req.url;
+        if (u.includes('/__/')) return Promise.reject(new Error('network down on auth helper'));
+        return Promise.resolve({ ok: true, body: 'net:' + u, clone() { return this; } });
+      }
+    };
+    vm.runInNewContext(swSrc, sandbox, { filename: 'sw.js' });
+
+    eq(sandbox.isCacheable('https://field.rehoteq.com/__/auth/handler'), false,
+      'sw.js isCacheable() refuses same-origin /__/ URLs');
+
+    const dispatchFetch = url => {
+      let responded = null;
+      listeners.fetch({
+        request: { method: 'GET', url },
+        respondWith: p => { responded = p; }
+      });
+      return responded;
+    };
+    const rHandler = dispatchFetch('https://field.rehoteq.com/__/auth/handler?state=abc');
+    const rIframe = dispatchFetch('https://field.rehoteq.com/__/auth/iframe');
+    const rInit = dispatchFetch('https://field.rehoteq.com/__/firebase/init.json');
+    ok(rHandler === null && rIframe === null && rInit === null && putCalls.every(u => !u.includes('/__/')),
+      'sw.js fetch listener leaves /__/ URLs alone (never cached, never replaced by the offline page)');
+
+    const rApp = dispatchFetch('https://field.rehoteq.com/app.js');
+    const appResp = rApp ? await rApp : null;
+    ok(!!appResp && appResp.body === 'cached-app-js',
+      'sw.js fetch listener still serves app.js from the shell cache');
+
+    // Favicon links in index.html, admin.html, and 404.html
+    ok(indexHtml.includes('<link rel="icon" type="image/png" href="icon-192.png">') &&
+       adminHtml.includes('<link rel="icon" type="image/png" href="icon-192.png">'),
+      'index.html and admin.html declare <link rel="icon" type="image/png" href="icon-192.png">');
+    ok(page404.includes('<link rel="icon" type="image/png" href="/icon-192.png">'),
+      '404.html declares <link rel="icon" type="image/png" href="/icon-192.png">');
+
+    // DEPLOY.md section E
+    ok(deployMd.includes('E. Let Google sign-in come back to field.rehoteq.com') &&
+       deployMd.includes('Web client (auto created by Google Service)') &&
+       deployMd.includes('https://field.rehoteq.com/__/auth/handler') &&
+       deployMd.includes('redirect_uri_mismatch') &&
+       deployMd.includes('rehoteq-field.firebaseapp.com'),
+      'DEPLOY.md section E documents the Google Cloud OAuth setup, redirect_uri_mismatch, and rollback');
+  }
 
   console.log('\n' + '-'.repeat(58));
   console.log('passed: ' + pass + '   failed: ' + fail);
