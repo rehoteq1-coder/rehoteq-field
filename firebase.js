@@ -238,7 +238,7 @@
     if (code === 'rehoteq/not-enabled') return 'The cloud is switched off in this build.';
     if (code === 'rehoteq/storage-unreachable') return 'Could not reach cloud storage. Check your data or Wi-Fi, then try again.';
     if (code === 'storage/unauthorized' || code === 'permission-denied') {
-      return 'The cloud refused this account. A backup belongs to the Google account that made it — sign in with that one.';
+      return 'The cloud refused this account. A backup belongs to the Google account that made it — sign in with that one. (' + code + ')';
     }
     if (code === 'storage/object-not-found' || code === 'not-found') return 'There is no cloud backup on this account yet.';
     if (code === 'storage/quota-exceeded') return 'Cloud storage is full. Tell REHOTEQ.';
