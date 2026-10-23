@@ -2480,6 +2480,23 @@ async function suiteCloudBackup(w) {
       'the restore toast says the newer work was kept, not overwritten');
   }
 
+  /* ---- the message says what is live, not what was planned ----------- */
+  await page.ACT.syncInfo();
+  ok(/waiting to sync/.test(toastText()) && !/Supabase|Phase 3/i.test(toastText()),
+    'the pending-work message no longer promises a Phase 3 that already shipped');
+  ok(/Back up this phone/.test(toastText()),
+    'and it points at the live cloud backup instead of a plan');
+  ok(/email: d\.email \|\| ''/.test(fbSrc),
+    'the cloud label read-back carries the owning email');
+  ok(/Nothing saved on this account yet/.test(appSrc),
+    'a restore with no backup on this account is refused with words, not a doomed download');
+  page.FB.cloudDownload = async () => { throw new Error('must not be called'); };
+  page.confirm = () => true;
+  page.ACT._setCloudForTest(null);
+  await page.ACT.cloudRestore();
+  ok(/Nothing saved on this account yet/.test(toastText()),
+    'the refused restore says so on screen');
+
   /* ---- the screens --------------------------------------------------- */
   page.FB.cloudLatest = async () => null;
   page.ACT._setCloudForTest(null);
