@@ -7,10 +7,15 @@
 <title>Field HQ · REHOTEQ</title>
 <link rel="icon" type="image/png" href="icon-192.png">
 <style>
-  :root{--green:#0E7C5A;--green-dark:#064E3B;--ink:#0F172A;--muted:#64748B;--line:#DCE7E2;--bg:#EEF3F1}
+  :root{--green:#0E7C5A;--green-dark:#064E3B;--ink:#0F172A;--muted:#64748B;--line:#DCE7E2;--bg:#F2FAF6}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
-    background:linear-gradient(180deg,#F3F7F5 0%,#EBF1EE 100%);
+    background:
+      radial-gradient(120% 80% at 88% -8%, rgba(14,124,90,.14), transparent 58%),
+      radial-gradient(90% 60% at -12% 104%, rgba(37,99,235,.09), transparent 55%),
+      repeating-linear-gradient(0deg, rgba(14,124,90,.045) 0 1px, transparent 1px 30px),
+      repeating-linear-gradient(90deg, rgba(14,124,90,.045) 0 1px, transparent 1px 30px),
+      linear-gradient(180deg,#F3FAF7 0%,#E9F2EE 100%);
     color:var(--ink);line-height:1.5;min-height:100vh;padding:22px}
   .wrap{max-width:900px;margin:0 auto}
   .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}

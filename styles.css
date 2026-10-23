@@ -23,9 +23,16 @@ body{
 }
 #shell{
   width:100%;max-width:430px;height:100%;max-height:940px;
-  /* Portals sit on a soft layered wash, never flat white: a cool green-tinted
-     ground that keeps white cards reading as elevated surfaces in bright sun. */
-  background:linear-gradient(180deg,#F5F9F7 0%,#EAF1EE 100%);position:relative;overflow:hidden;
+  /* The portals sit on a living ground, never flat white: a soft emerald
+     wash, a faint blueprint grid under the cards and two glow pockets,
+     so the app reads as a workshop bench under good light — a place an
+     engineer wants to open, not an empty form. */
+  background:
+    radial-gradient(120% 80% at 88% -8%, rgba(14,124,90,.16), transparent 58%),
+    radial-gradient(90% 60% at -12% 104%, rgba(37,99,235,.10), transparent 55%),
+    repeating-linear-gradient(0deg, rgba(14,124,90,.05) 0 1px, transparent 1px 30px),
+    repeating-linear-gradient(90deg, rgba(14,124,90,.05) 0 1px, transparent 1px 30px),
+    linear-gradient(180deg,#F2FAF6 0%,#E7F1ED 100%);position:relative;overflow:hidden;
   display:flex;flex-direction:column;
   box-shadow:0 0 60px rgba(0,0,0,.5);
 }
@@ -49,7 +56,7 @@ body{
 .statusbar{height:30px;flex:none;display:flex;align-items:center;justify-content:space-between;
   padding:0 18px;font-size:11.5px;font-weight:700;background:transparent}
 .statusbar .r{display:flex;gap:5px;align-items:center}
-.appbar{flex:none;background:linear-gradient(180deg,#FFFFFF,#F4F9F6);padding:8px 16px 10px;border-bottom:1px solid #DCE7E2}
+.appbar{flex:none;background:linear-gradient(180deg,#FFFFFF 0%,#EFF8F3 100%);padding:8px 16px 10px;border-bottom:1px solid #D3E2DB;box-shadow:0 2px 10px rgba(14,124,90,.06)}
 .appbar .row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:34px}
 .appbar .ttl{flex:1;text-align:center;font-size:15px;font-weight:700;letter-spacing:-.01em}
 .appbar .sub{text-align:center;font-size:10.5px;color:var(--muted);font-weight:600;margin-top:1px}
@@ -87,8 +94,8 @@ body{
 
 /* ---------- tiles ---------- */
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.tile{background:#fff;border:1.5px solid #E3EBE7;border-radius:15px;padding:14px 12px;
-  box-shadow:0 1px 2px rgba(15,23,42,.04),0 6px 16px rgba(14,124,90,.04);
+.tile{background:#fff;border:1.5px solid #DCE9E3;border-radius:15px;padding:14px 12px;
+  box-shadow:0 1px 2px rgba(15,23,42,.04),0 8px 20px rgba(14,124,90,.07);
   cursor:pointer;display:flex;flex-direction:column;gap:6px;text-align:left;font-family:inherit;position:relative}
 .tile:active{transform:scale(.975)}
 .tile .ic{font-size:21px;line-height:1}
@@ -100,8 +107,8 @@ body{
 .tile.locked{opacity:.6}
 
 /* ---------- cards ---------- */
-.card{background:#fff;border:1px solid #E3EBE7;border-radius:16px;overflow:hidden;margin-bottom:12px;
-  box-shadow:0 1px 2px rgba(15,23,42,.04),0 8px 22px rgba(14,124,90,.05)}
+.card{background:#fff;border:1px solid #DCE9E3;border-radius:16px;overflow:hidden;margin-bottom:12px;
+  box-shadow:0 1px 2px rgba(15,23,42,.04),0 10px 26px rgba(14,124,90,.08)}
 .card .ch{padding:12px 14px 0;font-size:10px;font-weight:750;letter-spacing:.08em;color:var(--muted);
   text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
 .card .cb{padding:10px 14px 13px}
@@ -212,11 +219,11 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .verify b{font-family:ui-monospace,monospace}
 .disclaim{padding:11px 16px 20px;font-size:9.5px;color:#94A3B8;line-height:1.6;text-align:center}
 
-.actionbar{flex:none;background:#FAFCFB;border-top:1px solid #DCE7E2;padding:11px 16px calc(11px + var(--safe-b));
+.actionbar{flex:none;background:#F6FBF8;border-top:1px solid #D9E6E0;padding:11px 16px calc(11px + var(--safe-b));
   display:flex;gap:9px}
 
 /* ---------- tab bar ---------- */
-.tabbar{flex:none;background:#FAFCFB;border-top:1px solid #DCE7E2;display:grid;
+.tabbar{flex:none;background:#F6FBF8;border-top:1px solid #D9E6E0;display:grid;
   grid-template-columns:repeat(4,1fr);padding:7px 0 calc(9px + var(--safe-b))}
 .tab{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;color:var(--muted);
   cursor:pointer;font-weight:650;border:none;background:none;font-family:inherit}
@@ -227,8 +234,8 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .searchbox{position:relative;margin-bottom:12px}
 .searchbox input{padding-left:36px}
 .searchbox .si{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:13px;opacity:.5}
-.libcard{background:#fff;border:1px solid #E3EBE7;border-radius:14px;padding:13px 14px;margin-bottom:10px;cursor:pointer;
-  box-shadow:0 1px 2px rgba(15,23,42,.04),0 6px 16px rgba(14,124,90,.04)}
+.libcard{background:#fff;border:1px solid #DCE9E3;border-radius:14px;padding:13px 14px;margin-bottom:10px;cursor:pointer;
+  box-shadow:0 1px 2px rgba(15,23,42,.04),0 8px 20px rgba(14,124,90,.07)}
 .libcard:active{background:var(--bg)}
 .libcard .lt{font-size:13.5px;font-weight:680;line-height:1.35}
 .libcard .lm{font-size:11px;color:var(--muted);margin-top:4px;display:flex;gap:7px;align-items:center;flex-wrap:wrap}

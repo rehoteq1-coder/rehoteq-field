@@ -686,7 +686,7 @@
     const CFGD = (global.CONFIG && global.CONFIG.domain) || 'field.rehoteq.com';
     // The wash behind the client page follows the app's own ground token,
     // so a restyle of the portals restyles the client view with it.
-    return '<div style="min-height:100vh;background:var(--bg,#F1F5F4);padding-bottom:96px">' +
+    return '<div style="min-height:100vh;background:radial-gradient(120% 80% at 88% -8%,rgba(14,124,90,.16),transparent 58%),radial-gradient(90% 60% at -12% 104%,rgba(37,99,235,.10),transparent 55%),repeating-linear-gradient(0deg,rgba(14,124,90,.05) 0 1px,transparent 1px 30px),repeating-linear-gradient(90deg,rgba(14,124,90,.05) 0 1px,transparent 1px 30px),linear-gradient(180deg,#F2FAF6,#E7F1ED);padding-bottom:96px">' +
       '<div class="rpthdr"><div class="lg"><div class="sq">R</div><div>' +
         '<h3>SERVICE REPORT</h3><p>' + cesc(pay.company.name) + '</p></div></div>' +
         '<div class="rptref"><span>' + cesc(pay.ref) + '</span><span>' + cesc(cdstr(pay.issuedAt)) + ' · ' + cesc(pay.stage) + '</span></div></div>' +
