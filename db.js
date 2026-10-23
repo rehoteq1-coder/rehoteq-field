@@ -63,14 +63,31 @@
     setMeta: (key, value) => DB.put('meta', { id: key, value: value }),
 
     /* --- outbox: the offline sync queue -------------------------------
-       Every write also lands here. When a connection exists, the sync
-       runner drains it to Supabase. Today it just records intent so the
-       behaviour is right from day one.                                */
+       Every write also lands here. The cloud is the sync: when a cloud
+       backup finishes, markAllSynced() drains this queue — the backup
+       carried every queued job, photo and team record up under the
+       signed-in account, so nothing in it is still waiting. The pending
+       count therefore reads as "work not yet backed up", which is the
+       number a technician can act on.
+                                                                       */
     queue: op => DB.put('outbox', {
       id: (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)),
       op: op, at: new Date().toISOString(), synced: false
     }),
-    pending: () => DB.all('outbox').then(r => r.filter(x => !x.synced))
+    pending: () => DB.all('outbox').then(r => r.filter(x => !x.synced)),
+    // Drain: called once a cloud backup has verifiably finished, so every
+    // queued intent is now carried by the backup on the account.
+    markAllSynced: async () => {
+      const all = await DB.all('outbox');
+      let n = 0;
+      for (const it of all) {
+        if (!it.synced) {
+          await DB.put('outbox', Object.assign({}, it, { synced: true, syncedAt: new Date().toISOString() }));
+          n++;
+        }
+      }
+      return n;
+    }
   };
 
   /* --- utilities ---------------------------------------------------- */

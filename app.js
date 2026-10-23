@@ -4189,8 +4189,13 @@
 
     async syncInfo() {
       const p = await DB.pending();
+      if (!p.length) {
+        return toast('Sync queue is clear', 'Everything this phone has done is already in your cloud backup.');
+      }
       toast(p.length + ' item(s) waiting to sync',
-        'Your work is safe on this device. Sign in with Google in Settings → Account, then tap Back up this phone to the cloud to copy it to your account.');
+        S.fbUser
+          ? 'That is work done since your last cloud backup. Tap Back up this phone to the cloud to carry it up — the count clears when the backup finishes.'
+          : 'Your work is safe on this device. Sign in with Google in Settings → Account, then tap Back up this phone to the cloud to copy it to your account.');
     },
 
     /* --- BACKUP ------------------------------------------------------
@@ -4349,8 +4354,14 @@
         };
         await DB.setMeta('lastBackup', at);
         await DB.setMeta('cloudBackup', S.cloud.latest);
+        // The backup just carried this phone's work to the cloud, so the
+        // sync queue has nothing left to wait for. Drain it here — the
+        // only place "synced" may be claimed, because this is where the
+        // copy verifiably exists on the account.
+        const carried = await DB.markAllSynced();
         toast('Backed up to the cloud — ' + dstr(at),
           bundle.jobs + ' jobs · ' + bundle.photos + ' photos · ' + mbLine(bundle.bytes) +
+          (carried ? ' · ' + carried + ' queued item(s) carried up' : '') +
           (bundle.missing ? ' · ' + bundle.missing + ' photo(s) had no image data' : ''));
       } catch (e) {
         toast('Cloud backup did not finish', cloudWhy(e), 8000);
