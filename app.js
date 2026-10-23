@@ -606,22 +606,35 @@
     const photos = Array.isArray(p.photos) ? p.photos : [];
     if (!jobs.length && !photos.length && !p.team) throw new Error('that backup is empty');
 
-    let addedJ = 0, updatedJ = 0;
+    // Merge, never clobber. The restore asks first and then promises that
+    // work already on this phone is merged, not deleted, so every record
+    // is compared before it is written: the copy edited more recently
+    // wins, and a photo this phone already holds keeps its real bytes
+    // when the backup row arrives without image data.
+    function jobStamp(j) {
+      return String(j.updatedAt || j.lockedAt || j.completedAt || j.createdAt || j.startedAt || '');
+    }
+
+    let addedJ = 0, updatedJ = 0, keptJ = 0;
     for (const j of jobs) {
       if (!j || !j.id) continue;
       const existing = await DB.get('jobs', j.id);
-      if (existing) updatedJ++; else addedJ++;
+      if (!existing) { addedJ++; await DB.put('jobs', j); continue; }
+      const mine = jobStamp(existing), theirs = jobStamp(j);
+      if (mine && (!theirs || mine >= theirs)) { keptJ++; continue; }
+      updatedJ++;
       await DB.put('jobs', j);
     }
 
-    let addedP = 0, noImage = 0;
+    let addedP = 0, noImage = 0, keptP = 0;
     for (const row of photos) {
       const rec = Object.assign({}, row);
       delete rec.file;
       if (!rec.blob) noImage++;
       if (!rec.id) continue;
       const existing = await DB.get('photos', rec.id);
-      if (!existing) addedP++;
+      if (!existing) { addedP++; await DB.put('photos', rec); continue; }
+      if (!rec.blob && existing.blob) { rec.blob = existing.blob; keptP++; }
       await DB.put('photos', rec);
     }
 
@@ -637,13 +650,14 @@
     all.forEach(x => { if (!x.url && x.blob) x.url = URL.createObjectURL(x.blob); });
     S.photos = {};
     go('home');
-    return { addedJ: addedJ, updatedJ: updatedJ, addedP: addedP, noImage: noImage, teamNote: teamNote };
+    return { addedJ: addedJ, updatedJ: updatedJ, keptJ: keptJ, addedP: addedP, noImage: noImage, keptP: keptP, teamNote: teamNote };
   }
 
   function restoreNote(r) {
     return (r.noImage ? r.noImage + ' photo(s) had no image data · ' : '') +
       (r.teamNote && (r.teamNote.company || r.teamNote.membersAdded) ? 'crew restored · ' : '') +
-      (r.updatedJ ? r.updatedJ + ' existing job(s) updated' : 'Nothing overwritten');
+      (r.updatedJ ? r.updatedJ + ' existing job(s) updated' : 'Nothing overwritten') +
+      (r.keptJ ? ' · ' + r.keptJ + ' newer edit(s) kept from this phone' : '');
   }
 
   async function newJob() {

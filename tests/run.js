@@ -2442,6 +2442,44 @@ async function suiteCloudBackup(w) {
   ok(/Restored 2 jobs, 1 photos/.test(toastText()) && /backup of \d{2} \w{3} \d{4}/.test(toastText()),
     'the restore toast says how much came back and which day the backup was from');
 
+  /* ---- merge, never clobber: newer work on this phone is kept -------- */
+  // The same backup, restored onto a phone that has moved on since it was
+  // taken: an edit made after the backup must survive the restore, and a
+  // photo this phone still holds keeps its bytes when the backup row has
+  // none.
+  {
+    const live = await page.DB.get('jobs', 'J1');
+    live.updatedAt = '2026-10-20T17:00:00.000Z';
+    live.diagnosis = 'Battery bank replaced, system charging';
+    await put('jobs', live);
+
+    // A backup whose copy of J1 is the OLD one (no updatedAt of its own,
+    // only the October 1 stamps) and whose photo row lost its image file.
+    const partial = page.ZIP.build([
+      { name: 'backup.json', data: JSON.stringify({ format: 'rehoteq-field-backup', version: 2,
+        jobs: [jobCard('J1', 'RF-2026-00001', 'solar', 'Mrs Adeyemi')],
+        photos: [{ id: 'P1', jobId: 'J1', stage: 'before', sha256: 'a1b2c3',
+          capturedAt: '2026-10-01T09:00:00.000Z', lat: 9.06, lng: 7.49,
+          file: 'photos/P1.jpg' }],
+        photoCount: 1 }) }
+    ]);
+    page.FB.cloudDownload = async () => partial;
+
+    await page.ACT.cloudRestore();
+    const kept = await page.DB.get('jobs', 'J1');
+    eq(kept.diagnosis, 'Battery bank replaced, system charging',
+      'a job edited after the backup keeps its newer edit — the restore does not undo it');
+    eq(kept.updatedAt, '2026-10-20T17:00:00.000Z', 'the newer edit keeps its newer timestamp');
+    const photoAfter = await page.DB.get('photos', 'P1');
+    ok(!!photoAfter && !!photoAfter.blob, 'the restored photo still has image data');
+    // The harness fake-IndexedDB keeps the Blob class but not jsdom's
+    // byte plumbing, so the check is presence: the old code stored null.
+    ok(!!photoAfter.blob,
+      'a photo whose backup row lost its image keeps the blob already on this phone, not an empty record');
+    ok(/newer edit/.test(toastText()),
+      'the restore toast says the newer work was kept, not overwritten');
+  }
+
   /* ---- the screens --------------------------------------------------- */
   page.FB.cloudLatest = async () => null;
   page.ACT._setCloudForTest(null);
