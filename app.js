@@ -950,6 +950,8 @@
     t.workerLogins = (await DB.getMeta('workerLogins')) || [];
     t.seats = (await DB.getMeta('teamSeats')) ||
       { paid: DATA.PLANS.business.seats, selfDeclared: false, claimedAt: null };
+    // An invite that arrived by link waits here until the worker taps Join.
+    S.pendingInvite = (await DB.getMeta('linkInvite')) || null;
     if (S.user && !S.user.uid) {
       // Installs from before teams existed have no uid. Mint one now, so
       // invites and assignments have an identity to point at.
@@ -963,6 +965,17 @@
     let s = '';
     for (let i = 0; i < 8; i++) s += CODE_ALPHA[Math.floor(Math.random() * CODE_ALPHA.length)];
     return 'RQ-' + s.slice(0, 4) + '-' + s.slice(4);
+  }
+
+  // URL-safe base64 for invite links. The payload rides in the URL, so
+  // the alphabet must survive WhatsApp, browsers and the address bar.
+  function enc64url(str) {
+    return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function dec64url(str) {
+    let t = String(str || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (t.length % 4) t += '=';
+    return decodeURIComponent(escape(atob(t)));
   }
 
   function brandSnapshot(company) {
@@ -1150,13 +1163,14 @@
       return { ok: true };
     },
 
-    async makeInvite() {
+    async makeInvite(opts) {
       const t = teamState();
       if (myRole() !== 'owner' || !t.company) return { ok: false, error: 'notowner' };
+      const o = opts || {};
       let code = makeCode();
       while (t.invites.some(i => i && i.code === code) ||
              t.workerLogins.some(w => w && w.code === code)) code = makeCode();
-      const inv = { code: code, companyId: t.company.id, status: 'waiting', createdAt: new Date().toISOString() };
+      const inv = { code: code, companyId: t.company.id, role: o.role === 'lead' ? 'lead' : 'tech', status: 'waiting', createdAt: new Date().toISOString() };
       t.invites.push(inv);
       await teamSave();
       DB.queue({ type: 'team.invite', id: code });
@@ -1168,7 +1182,38 @@
       const inv = t.invites.find(i => i.code === code && i.status === 'waiting');
       if (!inv || !t.company) return null;
       return { format: TEAM_FORMAT, kind: 'invite', code: code, companyId: t.company.id,
-        ownerName: t.company.ownerName, branding: brandSnapshot(t.company), createdAt: inv.createdAt };
+        role: inv.role || 'tech', ownerName: t.company.ownerName, branding: brandSnapshot(t.company), createdAt: inv.createdAt };
+    },
+
+    // The invite packed into a link: same payload as the file, minus the
+    // logo bytes (too big for a URL). A worker taps the link in WhatsApp
+    // and the app opens with the join card waiting — no file to import.
+    // No server round trip: the whole invite rides in the URL, so it works
+    // exactly as offline as everything else in this app.
+    inviteLink(code) {
+      const f = TEAM.inviteFile(code);
+      if (!f) return null;
+      const slim = Object.assign({}, f, { branding: Object.assign({}, f.branding, { logo: null }) });
+      let json;
+      try { json = JSON.stringify(slim); } catch (e) { return null; }
+      return CONFIG.origin + '/?invite=' + enc64url(json);
+    },
+
+    inviteFromLink(url) {
+      let raw = '';
+      try {
+        const u = new URL(String(url || ''));
+        raw = u.searchParams.get('invite') || '';
+        if (!raw && u.hash && u.hash.indexOf('invite=') >= 0) raw = u.hash.split('invite=')[1].split('&')[0];
+      } catch (e) { return null; }
+      if (!raw) return null;
+      let f = null;
+      try { f = JSON.parse(dec64url(raw)); } catch (e) { return null; }
+      if (!f || f.format !== TEAM_FORMAT || f.kind !== 'invite') return null;
+      if (!f.companyId || !f.branding || !f.branding.name) return null;
+      if (!/^RQ-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(String(f.code || ''))) return null;
+      f.role = f.role === 'lead' ? 'lead' : 'tech';
+      return f;
     },
 
     async revokeInvite(code) {
@@ -1188,6 +1233,7 @@
       if (cur && cur.companyId === file.companyId) return { ok: false, error: 'already' };
       if (cur) return { ok: false, error: 'elsewhere' };
       S.user.memberOf = { companyId: file.companyId, code: file.code,
+        role: file.role === 'lead' ? 'lead' : 'tech',
         branding: file.branding, ownerName: file.ownerName || '',
         joinedAt: new Date().toISOString(), sent: false };
       await DB.setMeta('user', S.user);
@@ -1199,6 +1245,7 @@
       const m = S.user && S.user.memberOf;
       if (!m) return null;
       return { format: TEAM_FORMAT, kind: 'acceptance', code: m.code, companyId: m.companyId,
+        role: m.role || 'tech',
         member: { memberId: myUid(), name: S.user.name, phone: S.user.phone || '', joinedAt: m.joinedAt } };
     },
 
@@ -1226,6 +1273,7 @@
       const dup = t.members.find(x => x.memberId === m.memberId);
       if (dup) {
         dup.name = m.name; dup.phone = m.phone || dup.phone;
+        dup.role = file.role === 'lead' ? 'lead' : (dup.role || 'tech');
         if (inv) inv.status = 'joined';
         if (workerLogin) { workerLogin.status = 'joined'; workerLogin.memberId = m.memberId; }
         await teamSave();
@@ -1234,6 +1282,7 @@
       const s = TEAM.seats();
       if (s.used >= s.paid) return { ok: false, error: 'full' };
       const rec = { memberId: m.memberId, name: m.name, phone: m.phone || '',
+        role: file.role === 'lead' ? 'lead' : 'tech',
         joinedAt: m.joinedAt || new Date().toISOString(), code: file.code };
       t.members.push(rec);
       if (inv) inv.status = 'joined';
@@ -3042,6 +3091,11 @@
             </div>`
           : `
             <div style="font-size:12px;color:var(--muted);margin:6px 0 9px">One tap. Seats left: ${Math.max(0, s.paid - s.used)}.</div>
+            <div style="font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.06em;margin-bottom:6px">THEIR ROLE</div>
+            <div class="btnrow" style="margin-bottom:9px">
+              <button class="btn ${(S.inviteRole || 'tech') !== 'lead' ? 'primary' : 'ghost'} sm" style="flex:1" onclick="ACT.setInviteRole('tech')">${ICON('user-plus', 14)} Technician</button>
+              <button class="btn ${(S.inviteRole || 'tech') === 'lead' ? 'primary' : 'ghost'} sm" style="flex:1" onclick="ACT.setInviteRole('lead')">${ICON('shield-check', 14)} Team lead</button>
+            </div>
             <button class="btn primary sm" style="width:100%" onclick="ACT.makeInvite()" ${full ? 'disabled' : ''}>
               ${ICON('user-plus', 15)} Create the invite</button>
             ${full ? '<div class="hintline" style="margin-top:8px">All seats are used — add seats first.</div>' : ''}`}
@@ -3052,14 +3106,17 @@
           <div style="font-size:12px;color:var(--muted);margin:6px 0 9px">Tap below, choose their chat, and send. The file carries the invite code automatically.</div>
           <button class="btn primary sm" style="width:100%" onclick="ACT.resendInvite('${esc(stepShare.code)}')">
             ${ICON('send', 15)} Send the invite file</button>
+          <div class="btnrow" style="margin-top:9px">
+            <button class="btn ghost sm" style="flex:1" onclick="ACT.shareInviteLink('${esc(stepShare.code)}')">${ICON('share-2', 14)} Share the link</button>
+            <button class="btn ghost sm" style="flex:1" onclick="ACT.copyInviteLink('${esc(stepShare.code)}')">${ICON('clipboard-list', 14)} Copy link</button>
+          </div>
+          <div class="hintline" style="margin-top:8px">The link is the easy way: they tap it, the app opens, they tap Join. The file still works too.</div>
         </div></div>
         <div class="card" style="margin-top:12px"><div class="cb">
           <div style="font-size:11px;font-weight:800;color:#0E7C5A">STEP 3 · WHAT THEY DO</div>
           <div style="font-size:12px;color:var(--muted);line-height:1.8;margin-top:6px">
-            1. Open REHOTEQ Field on their phone.<br>
-            2. Team tab, then <b>Import file from WhatsApp</b>, then pick the file you sent.<br>
-            3. Tap <b>Send acceptance</b> and choose your chat.<br>
-            4. Import the acceptance the same way on your side, and they appear here.</div>
+            With the link: they tap it, tap <b>Join</b>, then <b>Send acceptance</b> — and they appear here when you import it.<br><br>
+            With the file: Team tab, <b>Import file from WhatsApp</b>, pick the file, then <b>Send acceptance</b>. You import the acceptance the same way.</div>
           <div class="hintline" style="margin-top:9px">Their acceptance also arrives as a file: tap Import file from WhatsApp on your dashboard when it lands.</div>
         </div></div>` : ''}
         <div class="banner b-ok" style="margin-top:12px;text-align:left;line-height:1.6">
@@ -3139,7 +3196,7 @@
             <div class="rowitem" onclick="ACT.toggleMember('${m.memberId}')">
               <div class="dotg" style="background:${active ? '#F59E0B' : '#0E7C5A'}"></div>
               <div style="flex:1">
-                <div class="jt">${esc(m.name)}</div>
+                <div class="jt">${esc(m.name)}${m.role === 'lead' ? ' · Lead' : ''}</div>
                 <div class="js">${esc(m.phone || 'No number')} · ${active} active · ${done} done</div>
                 <div class="js" style="margin-top:2px">${last ? 'Updated ' + dstr(last) + ' ' + tstr(last) : 'No jobs yet'}</div>
               </div>
@@ -3170,7 +3227,7 @@
           <div class="card"><div class="rowitem">
             <div style="flex:1">
               <div class="jt mono">${esc(i.code)}</div>
-              <div class="js">Sent ${dstr(i.createdAt)} — waiting for their acceptance file</div>
+              <div class="js">Sent ${dstr(i.createdAt)} — ${i.role === 'lead' ? 'team lead' : 'technician'} invite, waiting for their acceptance</div>
             </div>
             <button class="btn ghost sm" style="width:auto;padding:9px 12px" onclick="ACT.resendInvite('${i.code}')">Send</button>
             <button class="btn ghost sm" style="width:auto;padding:9px 12px;color:#DC2626" onclick="ACT.revokeInvite('${i.code}')">Revoke</button>
@@ -3219,6 +3276,21 @@
   }
 
   function teamNoneView() {
+    const inv = S.pendingInvite;
+    if (inv && inv.branding && inv.branding.name) {
+      return `
+      <div class="pad">
+        <div class="card"><div class="cb">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--muted)">TEAM INVITE</div>
+          <div style="font-size:17px;font-weight:800;margin:3px 0">${esc(inv.branding.name)}</div>
+          <div style="font-size:12px;color:var(--muted)">${inv.ownerName ? esc(inv.ownerName) + ' invited you' : 'You were invited'} ·
+            ${inv.role === 'lead' ? 'Team lead' : 'Technician'}</div>
+        </div></div>
+        <button class="btn primary sm" style="width:100%;margin-top:12px" onclick="ACT.joinFromLink()">${ICON('user-plus', 15)} Join ${esc(inv.branding.name)}</button>
+        <button class="btn ghost sm" style="width:100%;margin-top:9px" onclick="ACT.clearLinkInvite()">Not now</button>
+        <div class="hintline" style="margin-top:9px">New here? Create your profile first, then come back to Team and tap Join.</div>
+      </div>`;
+    }
     return `
       <div class="pad">
         <div class="empty"><div class="ei">${ICON('users', 26)}</div>
@@ -4477,7 +4549,7 @@
     },
 
     async makeInvite() {
-      const r = await TEAM.makeInvite();
+      const r = await TEAM.makeInvite({ role: S.inviteRole === 'lead' ? 'lead' : 'tech' });
       if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
       ACT.go('teamadd');
       await shareTeamFile(r.file, 'rehoteq-invite-' + r.invite.code + '.json',
@@ -4489,6 +4561,60 @@
       const f = TEAM.inviteFile(code);
       if (!f) return toast('That invite is gone', 'Create a fresh one');
       await shareTeamFile(f, 'rehoteq-invite-' + code + '.json', 'Invite sent — code ' + code);
+    },
+
+    async setInviteRole(role) {
+      S.inviteRole = role === 'lead' ? 'lead' : 'tech';
+      render();
+    },
+
+    async shareInviteLink(code) {
+      const link = TEAM.inviteLink(code);
+      if (!link) return toast('That invite is gone', 'Create a fresh one');
+      const t = teamState();
+      const text = 'Join ' + ((t.company && t.company.name) || 'our crew') + ' on REHOTEQ Field: ' + link;
+      if (navigator.share) {
+        try { await navigator.share({ title: 'REHOTEQ Field invite', text: text, url: link }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; }
+      }
+      window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+    },
+
+    async copyInviteLink(code) {
+      const link = TEAM.inviteLink(code);
+      if (!link) return toast('That invite is gone', 'Create a fresh one');
+      let copied = false;
+      try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(link); copied = true; } } catch (e) { /* fall through */ }
+      if (!copied) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = link; document.body.appendChild(ta); ta.select();
+          copied = document.execCommand('copy'); document.body.removeChild(ta);
+        } catch (e) { /* fall through */ }
+      }
+      toast(copied ? 'Link copied' : 'Could not copy', copied ? 'Paste it in their WhatsApp chat' : 'Use Share the link instead');
+    },
+
+    async joinFromLink() {
+      const f = S.pendingInvite;
+      if (!f) return toast('No invite waiting', 'Ask your oga to resend the link');
+      if (!S.user) {
+        toast('Create your profile first', 'Then come back to Team and tap Join');
+        return ACT.go('boot');
+      }
+      const r = await TEAM.applyInvite(f);
+      if (!r.ok) { const e = teamErr(r.error); return toast(e[0], e[1]); }
+      S.pendingInvite = null;
+      await DB.setMeta('linkInvite', null);
+      ACT.go('team');
+      toast('Joined ' + r.company, 'Send your acceptance so you appear on their dashboard');
+    },
+
+    async clearLinkInvite() {
+      S.pendingInvite = null;
+      await DB.setMeta('linkInvite', null);
+      render();
+      toast('Invite dismissed');
     },
 
     async revokeInvite(code) {
@@ -4779,6 +4905,20 @@
     await refreshJobs();
     await refreshEquipment();
     await teamLoad();
+    // An invite arriving by link (?invite=...) is stashed before the first
+    // render, so the join card can offer it wherever the user lands. The
+    // parameter is then cleaned off the address bar so a refresh or a
+    // re-share of the URL cannot re-trigger the join.
+    const linkInvite = TEAM.inviteFromLink(location.href);
+    if (linkInvite) {
+      S.pendingInvite = linkInvite;
+      await DB.setMeta('linkInvite', linkInvite);
+      try {
+        const clean = new URL(location.href);
+        clean.searchParams.delete('invite');
+        history.replaceState(null, '', clean.pathname + (clean.searchParams.toString() ? '?' + clean.searchParams.toString() : ''));
+      } catch (e) { /* cosmetic only */ }
+    }
     await loadUsageLedger();
     if (S.user) await saveAccount(S.user);
     // hydrate photo urls for any job we render. A photo restored from a
@@ -4787,7 +4927,11 @@
     const all = await DB.all('photos');
     all.forEach(p => { if (!p.url && p.blob) p.url = URL.createObjectURL(p.blob); });
     S.welcomeSeen = await DB.getMeta('welcomeSeen');
-    go(S.user ? 'home' : (S.welcomeSeen ? 'boot' : 'welcome'));
+    if (S.pendingInvite && S.user && !S.user.memberOf && myRole() === 'none' && !teamState().company) {
+      go('team');
+    } else {
+      go(S.user ? 'home' : (S.welcomeSeen ? 'boot' : 'welcome'));
+    }
   }
 
   // Last line of defence. If boot ever throws, the technician must still get

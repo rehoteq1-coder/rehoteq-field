@@ -1394,6 +1394,118 @@ async function suiteTeam(w) {
    SUITE 7 — V3 AI fault diagnosis (`aiProxy`, `DIAG`, safety, grounding,
              human-in-the-loop confirmation, draft helper, and key guards)
    ===================================================================== */
+/* =====================================================================
+   SUITE — invite links: onboarding by URL (Phase 1)
+
+   The invite packed into the link, the whole way: the owner makes a
+   lead invite, the link is built, a fresh phone parses it, joins, and
+   the acceptance that comes back records the worker as a team lead.
+   ===================================================================== */
+async function suiteInviteLinks(w) {
+  describe('7. Invite links — onboarding by URL');
+  const T = w.TEAM;
+  ok(typeof T.inviteLink === 'function' && typeof T.inviteFromLink === 'function',
+    'link build and parse live on TEAM');
+
+  // Snapshot whatever the earlier suites left behind, so the slate this
+  // suite wipes is put back exactly as it was found.
+  const before = {
+    user: await w.DB.getMeta('user'),
+    accounts: await w.DB.getMeta('accounts'),
+    company: await w.DB.getMeta('company'),
+    members: await w.DB.getMeta('teamMembers'),
+    invites: await w.DB.getMeta('teamInvites'),
+    workerLogins: await w.DB.getMeta('workerLogins'),
+    seats: await w.DB.getMeta('teamSeats'),
+    linkInvite: await w.DB.getMeta('linkInvite')
+  };
+
+  // Clean slate for the crew metas only.
+  await w.DB.setMeta('company', null);
+  await w.DB.setMeta('teamMembers', null);
+  await w.DB.setMeta('teamInvites', null);
+  await w.DB.setMeta('workerLogins', null);
+  await w.DB.setMeta('linkInvite', null);
+  w.TEAM._testAs(null);
+  await T.load();
+
+  // The owner: a real profile through the real screen.
+  w.ACT.editProfile();
+  await sleep(80);
+  w.document.getElementById('iName').value = 'Link Oga';
+  w.document.getElementById('iPhone').value = '0803 555 7777';
+  w.document.getElementById('iCompany').value = 'Link Crew Ltd';
+  await w.ACT.saveProfile();
+  await sleep(80);
+  await T.load();
+  const created = await T.createCompany();
+  ok(created.ok, 'the owner creates a company for the link test');
+  if (!created.ok) return;
+
+  const invLead = await T.makeInvite({ role: 'lead' });
+  ok(invLead.ok && invLead.invite.role === 'lead', 'an invite can be made for a team lead');
+  const invTech = await T.makeInvite();
+  ok(invTech.ok && invTech.invite.role === 'tech', 'an invite defaults to technician');
+
+  const link = T.inviteLink(invLead.invite.code);
+  ok(!!link && link.indexOf('https://field.rehoteq.com/?invite=') === 0,
+    'the invite link is a field.rehoteq.com URL');
+  const parsed = T.inviteFromLink(link);
+  ok(!!parsed && parsed.code === invLead.invite.code && parsed.companyId === created.company.id,
+    'the link round-trips back into the invite payload');
+  ok(!!parsed && parsed.role === 'lead' && !!parsed.branding &&
+     parsed.branding.name === 'Link Crew Ltd' && !parsed.branding.logo,
+    'the link carries the role and company name but not the logo bytes');
+  eq(T.inviteFromLink('https://field.rehoteq.com/?invite=!!!!'), null, 'a broken link parses to nothing');
+  eq(T.inviteFromLink('https://field.rehoteq.com/'), null, 'a plain URL carries no invite');
+  eq(T.inviteLink('RQ-XXXX-XXXX'), null, 'an unknown code produces no link');
+
+  // Snapshot THIS suite's owner state, then switch to the worker's phone.
+  const mine = {
+    user: await w.DB.getMeta('user'),
+    accounts: await w.DB.getMeta('accounts'),
+    company: await w.DB.getMeta('company'),
+    members: await w.DB.getMeta('teamMembers'),
+    invites: await w.DB.getMeta('teamInvites'),
+    workerLogins: await w.DB.getMeta('workerLogins'),
+    seats: await w.DB.getMeta('teamSeats'),
+    linkInvite: await w.DB.getMeta('linkInvite')
+  };
+
+  // Worker side: a fresh phone opens the link and joins as a lead.
+  // A worker's phone holds no company of its own: _testAs gives the
+  // fresh-phone view, no reload (that would read the owner's company meta).
+  w.TEAM._testAs({ uid: 'WKLINK1', name: 'Lead Worker', plan: 'free' });
+  const joined = await T.applyInvite(parsed);
+  ok(joined.ok, 'a worker joins through the parsed link');
+  if (joined.ok) {
+    const m = (await w.DB.getMeta('user')).memberOf || {};
+    eq(m.role, 'lead', 'the joined worker carries the lead role');
+    const acc = T.acceptanceFile();
+    eq(acc.role, 'lead', 'the acceptance carries the lead role');
+
+    // Owner side again: the acceptance lands and the roster records it.
+    await restoreTeam(w, mine);
+    const accepted = await T.applyAcceptance(acc);
+    ok(accepted.ok, 'the owner imports the acceptance that came back',
+      String(accepted && accepted.error));
+    ok(accepted.ok && accepted.member && accepted.member.role === 'lead',
+      'the roster records the worker as a team lead');
+  }
+
+  // Put back exactly what this suite found.
+  await w.DB.setMeta('user', before.user);
+  await w.DB.setMeta('accounts', before.accounts);
+  await w.DB.setMeta('company', before.company);
+  await w.DB.setMeta('teamMembers', before.members);
+  await w.DB.setMeta('teamInvites', before.invites);
+  await w.DB.setMeta('workerLogins', before.workerLogins);
+  await w.DB.setMeta('teamSeats', before.seats);
+  await w.DB.setMeta('linkInvite', before.linkInvite);
+  w.TEAM._testAs(before.user);
+  await T.load();
+}
+
 async function suiteAi(w) {
   describe('7. AI diagnosis — grounded in the library, safety first, human-confirmed');
 
@@ -2533,6 +2645,7 @@ async function suiteCloudBackup(w) {
   await suiteFirebase(w);
   await suiteWelcomeTrial(w);
   await suiteTeam(w);
+  await suiteInviteLinks(w);
   await suiteAi(w);
   await suiteLandingAndOwner(w);
   await suiteAccountsQuota(w);
