@@ -167,8 +167,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v43'/.test(swSrc),
-    'the service-worker cache is bumped to v43 for the release');
+  ok(/const CACHE = 'rehoteq-field-v44'/.test(swSrc),
+    'the service-worker cache is bumped to v44 for the release');
   ok(/'zip\.js'/.test(swSrc), 'sw.js caches zip.js, or a restored phone cannot unpack offline');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
@@ -1572,7 +1572,10 @@ async function suiteClientReports(w) {
 
   // The route and the buttons are wired in the real app source.
   const appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
-  ok(appSrc.includes('REPORT.clientFromLink(location.href)'), 'boot answers a report link before the app starts');
+  ok(/typeof REPORT !== 'undefined' && REPORT\.clientFromLink/.test(appSrc),
+    'boot answers a report link without ever crashing on a half-updated cache');
+  const swSrc = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  ok(/const CACHE = 'rehoteq-field-v\d+';/.test(swSrc), 'the service worker carries a versioned cache stamp');
   ok(appSrc.includes("ACT.shareClientReport('wa')") && appSrc.includes("ACT.shareClientReport('mail')"),
     'the report view offers WhatsApp and Email shares');
 }
@@ -2202,7 +2205,7 @@ async function suiteCloudBackup(w) {
   const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
     .split(/\s+/).map(x => x.trim()).filter(Boolean);
   ok(deployList.includes('zip.js'), 'deploy.yml publishes zip.js — the app would crash on a phone without it');
-  ok(swSrc.includes('rehoteq-field-v43'), 'the service-worker cache is bumped to v43');
+  ok(swSrc.includes('rehoteq-field-v44'), 'the service-worker cache is bumped to v44');
   ok(deployList.includes('app.js') && deployList.includes('firebase.js'),
     'the rest of the shell still publishes');
 
@@ -2744,7 +2747,7 @@ async function suiteCloudBackup(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v43'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v44'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');

@@ -4940,7 +4940,11 @@
     // A client opening a report link sees one branded report page and
     // nothing else: no database, no navigation, nothing writable. The
     // app itself does not even start for them.
-    const clientReport = REPORT.clientFromLink(location.href);
+    // A half-updated offline cache can pair a new app.js with an old
+    // report.js. The boot route must degrade, never crash: if the helper
+    // is missing, a plain URL carries no report anyway.
+    const clientReport = (typeof REPORT !== 'undefined' && REPORT.clientFromLink)
+      ? REPORT.clientFromLink(location.href) : null;
     if (clientReport) { REPORT.renderClient(app(), clientReport); return; }
     S.user = await DB.getMeta('user');
     S.accounts = (await DB.getMeta('accounts')) || [];
