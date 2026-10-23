@@ -430,6 +430,7 @@
           var d = snap.data() || {};
           return {
             updatedAt: iso(d.updatedAt),
+            email: d.email || '',
             jobs: Number(d.jobs) || 0,
             photos: Number(d.photos) || 0,
             bytes: Number(d.bytes) || 0,

@@ -2963,7 +2963,7 @@
               <span style="font-size:11px;color:var(--muted);font-weight:500">${
                 S.cloud.busy ? 'Working — do not close the app'
                 : S.cloud.latest && S.cloud.latest.updatedAt
-                  ? 'Saved ' + dstr(S.cloud.latest.updatedAt) + ' · ' + cloudLine(S.cloud.latest)
+                  ? 'Saved ' + dstr(S.cloud.latest.updatedAt) + ' · ' + cloudLine(S.cloud.latest) + (S.cloud.latest.email ? ' · ' + S.cloud.latest.email : '')
                   : 'One tap · jobs + photos · says the date when it is done'}</span></span>
             <span style="color:#0E7C5A;font-weight:700">${S.cloud.busy ? '…' : (S.cloud.latest && S.cloud.latest.updatedAt ? 'Update' : 'Best')}</span></div>
           <div class="srow" onclick="ACT.cloudRestore()"><span class="si">${ICON('download', 17)}</span>
@@ -4190,7 +4190,7 @@
     async syncInfo() {
       const p = await DB.pending();
       toast(p.length + ' item(s) waiting to sync',
-        'Supabase sync lands in Phase 3. Nothing is lost — everything is on this device.');
+        'Your work is safe on this device. Sign in with Google in Settings → Account, then tap Back up this phone to the cloud to copy it to your account.');
     },
 
     /* --- BACKUP ------------------------------------------------------
@@ -4375,8 +4375,12 @@
         return toast('No connection right now', 'A restore downloads the file — try again when you have data');
       }
       const latest = S.cloud.latest;
-      const when = latest && latest.updatedAt ? dstr(latest.updatedAt) : null;
-      const what = latest ? ' (' + cloudLine(latest) + ')' : '';
+      if (!latest || !latest.updatedAt) {
+        return toast('Nothing saved on this account yet',
+          'The cloud backup lives under the Google account that made it. Settings → Account shows who is signed in; Back up this phone to the cloud puts a copy on this account.');
+      }
+      const when = dstr(latest.updatedAt);
+      const what = ' (' + cloudLine(latest) + (latest.email ? ' · ' + latest.email : '') + ')';
       if (!confirm('Restore the cloud backup' + (when ? ' from ' + when : '') + what + '?\n\n' +
         'Everything in that backup comes back onto this phone: job cards, photos, your profile ' +
         'and your crew. Work already on this phone is merged, not deleted.\n\n' +
