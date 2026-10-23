@@ -77,6 +77,15 @@
     pending: () => DB.all('outbox').then(r => r.filter(x => !x.synced)),
     // Drain: called once a cloud backup has verifiably finished, so every
     // queued intent is now carried by the backup on the account.
+    // Mark ONE outbox item carried. The live sync uses this after the
+    // cloud accepted a single op; only the backup may claim everything.
+    markSynced: async (id) => {
+      const it = await DB.get('outbox', id);
+      if (it && !it.synced) {
+        await DB.put('outbox', Object.assign({}, it, { synced: true, syncedAt: new Date().toISOString() }));
+      }
+    },
+
     markAllSynced: async () => {
       const all = await DB.all('outbox');
       let n = 0;

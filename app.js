@@ -681,12 +681,120 @@
     S.job.updatedAt = new Date().toISOString();
     await DB.put('jobs', JSON.parse(JSON.stringify(S.job)));
     DB.queue({ type: 'job.upsert', id: S.job.id });
+    scheduleSync();
     await refreshJobs();
   }
 
   async function refreshJobs() {
     S.jobs = (await DB.all('jobs')).filter(j => !j.deletedAt)
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  /* ---------------- live sync (stage 1: job records) -----------------
+     Phone to phone. Every job this phone saves, assigns or receives is
+     pushed to the cloud jobs collection the moment the outbox flushes,
+     and a listener applies what other signed-in phones write, so the
+     boss's phone and the crew's phones see the same work without a
+     backup tap or a WhatsApp file. The newer-edit-wins stamp that
+     governs restore governs this too: the copy edited more recently
+     wins, whatever wrote it last.
+
+     Honest limits of this edition (stated on screen, not just here):
+     - job records travel live; photo files still travel with the
+       backup, so a job that arrived live shows its facts but its
+       pictures wait until that phone restores
+     - deletions stay local until the next backup; a job removed on one
+       phone is not erased on the others yet
+     ------------------------------------------------------------------ */
+
+  let syncTimer = null;
+  let syncStop = null;
+
+  // The same precedence restore uses: the copy edited more recently wins.
+  function jobStampOf(j) {
+    return String(j.updatedAt || j.lockedAt || j.completedAt || j.createdAt || j.startedAt || '');
+  }
+
+  function liveSyncLabel() {
+    if (!S.fbUser) return '<span style="color:#94A3B8">Off · sign in</span>';
+    if (!S.online) return 'Waiting for signal';
+    return '<span class="online-dot"></span>On';
+  }
+
+  function liveSyncInfo() {
+    if (!S.fbUser) {
+      toast('Live sync is off. Sign in with Google on every phone that should share, and jobs will travel between them on their own.');
+      return;
+    }
+    if (!S.online) {
+      toast('Live sync is waiting for signal. Work is saved on this phone and pushes the moment you are back online.');
+      return;
+    }
+    toast('Live sync is on. Jobs you save reach your other signed-in phones within seconds, and theirs reach this one. Photo files still travel with the backup.');
+  }
+
+  function scheduleSync() {
+    if (syncTimer) return;
+    syncTimer = setTimeout(async () => {
+      syncTimer = null;
+      await flushSync();
+    }, 1500);
+  }
+
+  // Drain the outbox's job ops to the cloud. Every other kind of op stays
+  // queued for the backup, the only rail that can carry it.
+  async function flushSync() {
+    if (!S.fbUser || !S.online) return;
+    if (!window.FB || typeof window.FB.syncPush !== 'function') return;
+    const ops = (await DB.pending()).filter(o => o.op &&
+      (o.op.type === 'job.upsert' || o.op.type === 'team.assign' || o.op.type === 'team.update'));
+    for (const o of ops) {
+      const j = await DB.get('jobs', o.op.id);
+      if (!j || j.deletedAt) { await DB.markSynced(o.id); continue; }
+      try {
+        const doc = JSON.parse(JSON.stringify(j));
+        // The cloud job keeps the owner it was born with: a worker pushing
+        // an assigned job must not claim the boss's record. A job this
+        // phone created itself carries its owner now.
+        if (!doc.ownerId) doc.ownerId = S.fbUser.uid;
+        await window.FB.syncPush(doc);
+        await DB.markSynced(o.id);
+      } catch (e) {
+        // One refused push must not stop the rest; the op stays queued and
+        // the next flush (a save, a reconnect, a sign-in) tries again.
+      }
+    }
+  }
+
+  // A copy another phone wrote. Newer wins; this phone's own work is
+  // never clobbered by an older copy, and a job this phone never saw is
+  // simply added.
+  async function applyRemoteJob(id, remote) {
+    if (!id || !remote || remote.deletedAt) return;
+    if (remote.id && remote.id !== id) remote = Object.assign({}, remote, { id: id });
+    const local = await DB.get('jobs', id);
+    if (!local) {
+      await DB.put('jobs', remote);
+      await refreshJobs();
+      return;
+    }
+    const mine = jobStampOf(local), theirs = jobStampOf(remote);
+    if (mine && (!theirs || mine >= theirs)) return;
+    await DB.put('jobs', remote);
+    if (S.job && S.job.id === id) S.job = JSON.parse(JSON.stringify(remote));
+    await refreshJobs();
+  }
+
+  function startSyncWatch() {
+    if (syncStop || !S.fbUser || !S.online) return;
+    if (!window.FB || typeof window.FB.syncWatch !== 'function') return;
+    syncStop = window.FB.syncWatch(async (id, remote) => {
+      try { await applyRemoteJob(id, remote); } catch (e) { /* the next copy will land again */ }
+    });
+  }
+
+  function stopSyncWatch() {
+    if (syncStop) { syncStop(); syncStop = null; }
   }
 
   /* ---------------- photos ------------------------------------------ */
@@ -1323,6 +1431,7 @@
       job.updatedAt = new Date().toISOString();
       await DB.put('jobs', JSON.parse(JSON.stringify(job)));
       DB.queue({ type: 'team.assign', id: job.id });
+      scheduleSync();
       await refreshJobs();
       if (S.job && S.job.id === job.id) S.job = JSON.parse(JSON.stringify(job));
       const photos = await packPhotos(job.id);
@@ -1378,6 +1487,7 @@
       await DB.put('jobs', JSON.parse(JSON.stringify(job)));
       const ph = await unpackPhotos(file.photos);
       DB.queue({ type: 'team.update', id: job.id });
+      scheduleSync();
       await refreshJobs();
       if (S.job && S.job.id === job.id) S.job = JSON.parse(JSON.stringify(job));
       return { ok: true, job: job, photos: ph.added };
@@ -2941,6 +3051,8 @@
             <span class="sv">Photos ≤ 350 KB</span></div>
           <div class="srow"><span class="si">${ICON('cloud', 17)}</span><span class="sl">Offline</span>
             <span class="sv">${S.online ? '<span class="online-dot"></span>Online' : '<span class="offline-dot"></span>Offline — work is saved'}</span></div>
+          <div class="srow" onclick="ACT.liveSyncInfo()"><span class="si">${ICON('users', 17)}</span><span class="sl">Live sync</span>
+            <span class="sv">${liveSyncLabel()}</span></div>
           <div class="srow" onclick="ACT.syncInfo()"><span class="si">${ICON('refresh-cw', 17)}</span><span class="sl">Sync queue</span>
             <span class="sv" id="queueCount">…</span></div>
         </div>
@@ -3601,6 +3713,9 @@
     // simulates a signed-in Google account through this setter. It mirrors
     // exactly what firebase.js writes on a real sign-in, nothing more.
     _fbUser(u) { S.fbUser = u; },
+    _flushSyncForTest: flushSync,
+    _applyRemoteForTest: applyRemoteJob,
+    liveSyncInfo: () => liveSyncInfo(),
     go, toast,
     isOwner: () => isOwnerAccount(),
     canGenerateReport: canGenerateReport,
@@ -5035,7 +5150,7 @@
       esc(String((err && err.message) || err)) + '</div></div>';
   }
 
-  window.addEventListener('online', () => { S.online = true; render(); });
+  window.addEventListener('online', () => { S.online = true; render(); flushSync(); startSyncWatch(); });
   window.addEventListener('offline', () => { S.online = false; render(); });
 
   // The entitlement record (users/{uid}) is written by Cloud Functions
@@ -5085,6 +5200,9 @@
       if (u) hydrateEntitlement();
       if (u) refreshCloudInfo();     // v1.9.0: what the cloud holds for THIS account
       if (u) FB.touchLastActive();   // Field HQ: last-active register, silent on failure
+      // Live sync follows the signed-in account: watch the shared jobs
+      // feed, push what is queued, and stop watching on sign-out.
+      if (u) { startSyncWatch(); flushSync(); } else stopSyncWatch();
       // A fresh sign-in invalidates the last account check — its lines name
       // the account that was signed in a moment ago.
       S.accountCheck = null;

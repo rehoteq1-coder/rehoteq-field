@@ -135,6 +135,10 @@ service cloud.firestore {
 
     /* ---- jobs -------------------------------------------------------- */
 
+    // The crew shares the work: any member of the job's company may read
+    // it, so a job pushed live from a technician's phone reaches the
+    // lead's phone too. Writes stay where they were: owner or assignee.
+
     // Job records carry customer names, phone numbers and home addresses.
     // A leak here is a data-protection problem, not an inconvenience.
     match /jobs/{jobId} {
@@ -144,7 +148,7 @@ service cloud.firestore {
       allow read: if signedIn() && (
           owns()
           || assigned()
-          || (resource.data.companyId != null && isLeadOf(resource.data.companyId))
+          || (resource.data.companyId != null && isMember(resource.data.companyId))
         );
 
       // You may only create a job that belongs to you.
