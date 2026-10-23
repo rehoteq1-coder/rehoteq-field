@@ -3542,20 +3542,20 @@
           <button class="iconbtn" onclick="ACT.go('jobs')">${ICON('search', 18)}</button>
           <button class="iconbtn" onclick="ACT.go('settings')">${ICON('settings-2', 18)}</button>
         </div></div>
-        <div style="font-size:12px;color:var(--muted);margin-top:7px">
+        <div style="font-size:12px;color:rgba(255,255,255,.82);margin-top:7px">
           Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'},
-          <b style="color:var(--ink)">${esc((S.user && S.user.name) || 'there')}</b>
-          ${!S.online ? ' · <span style="color:#DC2626">offline</span>' : ''}
+          <b style="color:#fff">${esc((S.user && S.user.name) || 'there')}</b>
+          ${!S.online ? ' · <span style="color:#FFC9C2">offline</span>' : ''}
         </div></div>`;
     }
     const hasTab = ['home', 'jobs', 'settings'].includes(v);
     const body = v === 'welcome' ? V.welcome() : (v === 'report' ? V.report() : `<div class="scroll">${(V[v] || V.home)()}</div>`);
     app().innerHTML = bar + body +
       (hasTab ? `<div class="tabbar">
-        <button class="tab ${v === 'home' ? 'on' : ''}" onclick="ACT.go('home')"><span class="ti">${ICON('house', 20)}</span>Home</button>
-        <button class="tab ${v === 'jobs' ? 'on' : ''}" onclick="ACT.go('jobs')"><span class="ti">${ICON('clipboard-list', 20)}</span>Jobs</button>
-        <button class="tab" onclick="ACT.go('library')"><span class="ti">${ICON('wrench', 20)}</span>Guides</button>
-        <button class="tab ${v === 'settings' ? 'on' : ''}" onclick="ACT.go('settings')"><span class="ti">${ICON('settings-2', 20)}</span>Settings</button>
+        <button class="tab t-home ${v === 'home' ? 'on' : ''}" onclick="ACT.go('home')"><span class="ti">${ICON('house', 20)}</span>Home</button>
+        <button class="tab t-jobs ${v === 'jobs' ? 'on' : ''}" onclick="ACT.go('jobs')"><span class="ti">${ICON('clipboard-list', 20)}</span>Jobs</button>
+        <button class="tab t-library" onclick="ACT.go('library')"><span class="ti">${ICON('wrench', 20)}</span>Guides</button>
+        <button class="tab t-settings ${v === 'settings' ? 'on' : ''}" onclick="ACT.go('settings')"><span class="ti">${ICON('settings-2', 20)}</span>Settings</button>
       </div>` : '');
 
     postRender(v);
