@@ -486,5 +486,233 @@
     return PDFT.build(c.doc);
   }
 
-  global.REPORT = { buildReport: buildReport, buildQuote: buildQuote, fmt: fmt };
+  /* ===================================================================
+     Client report links (Phase 2)
+
+     The company sends a finished report to its client directly, over
+     WhatsApp or email, with no client account and no server. The same
+     no-server trick as the team invite link: a slim read-only copy of
+     the report rides inside the URL itself, and opening it on any
+     phone renders one branded report page and nothing else.
+
+     What the link can never carry: photographs and signature strokes
+     (image bytes do not fit a URL). The page says plainly how many
+     photographs are on file and points at the PDF for them. Every
+     text block is capped, so one enormous note cannot blow the URL
+     past what WhatsApp and mail clients survive.
+     =================================================================== */
+  const REPORT_FORMAT = 'rehoteq-field-report';
+  const TXT_CAP = 500;          // per text block
+  const MAT_CAP = 12;           // material rows
+  const CHK_CAP = 25;           // checklist items
+  const ITEM_CAP = 80;          // per checklist line / material description
+
+  function cesc(v) {
+    return String(v === null || v === undefined ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function cap(v, n) {
+    const t = String(v || '').trim();
+    return t.length > n ? t.slice(0, n - 1) + '…' : t;
+  }
+  function enc64(str) {
+    return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function dec64(str) {
+    let t = String(str || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (t.length % 4) t += '=';
+    return decodeURIComponent(escape(atob(t)));
+  }
+  function cfmt(n) {
+    return '₦' + Number(n || 0).toLocaleString('en-NG', { maximumFractionDigits: 2 });
+  }
+  function cdstr(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d)) return '—';
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  function ctstr(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // The read-only copy that rides in the link. Only present values go
+  // in, so an honest little report makes a short link.
+  function clientPayload(job, profile) {
+    if (!job || !job.ref) return null;
+    profile = profile || {};
+    const stage = job.status === 'sent' ? 'Issued'
+      : (job.lockedAt || job.status === 'completed') ? 'Completed'
+      : 'Draft';
+    const stages = ['before', 'during', 'after', 'serial'];
+    const photos = {};
+    let photoTotal = 0;
+    // Photo COUNTS travel; photo bytes cannot. The client page states
+    // the count and points at the PDF for the images themselves.
+    stages.forEach(st => {
+      const n = (job._photoCounts && job._photoCounts[st]) || 0;
+      if (n) { photos[st] = n; photoTotal += n; }
+    });
+    const p = {
+      format: REPORT_FORMAT, kind: 'client-report', v: 1,
+      ref: cap(job.ref, 40), stage: stage,
+      issuedAt: job.completedAt || job.lockedAt || job.startedAt || new Date().toISOString(),
+      company: {
+        name: cap(profile.company || 'REHOTEQ Technologies', 80),
+        phone: cap(profile.phone || '', 40),
+        address: cap(profile.address || '', 120),
+        email: cap(profile.email || '', 80)
+      },
+      tech: cap(profile.name || job.technician || '', 60),
+      job: {
+        service: cap(job.jobType, 80),
+        trade: cap((job.trade || '').toUpperCase(), 30),
+        customer: cap(job.customer && job.customer.name, 80),
+        phone: cap(job.customer && job.customer.phone, 40),
+        location: cap((job.site && job.site.address) || (job.customer && job.customer.address), 160),
+        equipment: cap([job.equipment && job.equipment.capacity, job.equipment && job.equipment.model]
+          .filter(Boolean).join(' · '), 100),
+        serial: cap(job.equipment && job.equipment.serial, 60),
+        installed: job.equipment && job.equipment.installDate ? cdstr(job.equipment.installDate) : ''
+      }
+    };
+    ['instructions', 'fault', 'diagnosis', 'work', 'recommendation'].forEach(k => {
+      const v = cap(job[k], TXT_CAP);
+      if (v) p[k] = v;
+    });
+    const mats = (job.materials || []).slice(0, MAT_CAP).map(m => ({
+      d: cap(m.desc, ITEM_CAP),
+      q: Number(m.qty) || 1,
+      u: cap(m.unit, 12),
+      p: Number(m.unitPrice) || 0
+    }));
+    if (mats.length) p.materials = mats;
+    if (job.labour) p.labour = Number(job.labour) || 0;
+    if (mats.length || job.labour) {
+      const msum = mats.reduce((x, m) => x + (Number(m.q) || 1) * m.p, 0);
+      p.total = msum + (Number(job.labour) || 0);
+    }
+    if (job.checklist && job.checklist.items && job.checklist.items.length) {
+      p.checklist = {
+        name: cap(job.checklist.name, 60),
+        items: job.checklist.items.slice(0, CHK_CAP).map(i => ({ l: cap(i.l, ITEM_CAP), p: !!i.passed }))
+      };
+    }
+    if (photoTotal) { p.photos = photos; p.photoTotal = photoTotal; }
+    const sigs = {};
+    ['customer', 'technician'].forEach(role => {
+      const sg = job.signatures && job.signatures[role];
+      if (sg && (sg.name || sg.at)) sigs[role] = { name: cap(sg.name, 60), at: sg.at || '' };
+    });
+    if (Object.keys(sigs).length) p.sigs = sigs;
+    if (job.hashes && job.hashes.length) p.hashes = job.hashes.length;
+    return p;
+  }
+
+  // The link: the payload rides in the URL, the same way an invite does.
+  function clientLink(job, profile) {
+    const pay = clientPayload(job, profile);
+    if (!pay) return null;
+    let json;
+    try { json = JSON.stringify(pay); } catch (e) { return null; }
+    const CFGO = (global.CONFIG && global.CONFIG.origin) || 'https://field.rehoteq.com';
+    return CFGO + '/?report=' + enc64(json);
+  }
+
+  function clientFromLink(url) {
+    let raw = '';
+    try {
+      const u = new URL(String(url || ''));
+      raw = u.searchParams.get('report') || '';
+      if (!raw && u.hash && u.hash.indexOf('report=') >= 0) raw = u.hash.split('report=')[1].split('&')[0];
+    } catch (e) { return null; }
+    if (!raw) return null;
+    let pay = null;
+    try { pay = JSON.parse(dec64(raw)); } catch (e) { return null; }
+    if (!pay || pay.format !== REPORT_FORMAT || pay.kind !== 'client-report' || pay.v !== 1) return null;
+    if (!pay.ref || !pay.company || !pay.company.name) return null;
+    pay.stage = pay.stage === 'Issued' || pay.stage === 'Completed' ? pay.stage : 'Draft';
+    return pay;
+  }
+
+  // The page a client sees: one branded report, no app, no navigation,
+  // nothing writable. Reuses the app's own report styles, which are
+  // already on the page.
+  function clientHtml(pay) {
+    const j = pay.job || {};
+    const kv = [
+      ['Customer', j.customer], ['Phone', j.phone], ['Location', j.location],
+      ['Service', j.service], ['Trade', j.trade], ['Equipment', j.equipment],
+      ['Serial no.', j.serial], ['Installed', j.installed]
+    ].filter(x => x[1]);
+    const contact = [pay.company.phone, pay.company.email, pay.company.address].filter(Boolean).join(' · ');
+    const sections = [['SITE INSTRUCTIONS', pay.instructions], ['FAULT REPORTED', pay.fault],
+      ['DIAGNOSIS', pay.diagnosis], ['WORK PERFORMED', pay.work], ['RECOMMENDATION', pay.recommendation]]
+      .filter(x => x[1]);
+    const rows = (pay.materials || []).map(m =>
+      '<div class="matrow"><span>' + cesc(m.d) + ' × ' + cesc(m.q) + (m.u ? ' ' + cesc(m.u) : '') + '</span>' +
+      '<span class="p">' + cesc(cfmt((Number(m.q) || 1) * m.p)) + '</span></div>').join('') +
+      (pay.labour ? '<div class="matrow" style="border-top:1px solid var(--line);margin-top:5px;padding-top:8px">' +
+        '<span style="font-weight:700">Labour</span><span class="p">' + cesc(cfmt(pay.labour)) + '</span></div>' : '') +
+      '<div class="matrow" style="border-top:1.5px solid var(--ink);margin-top:5px;padding-top:8px">' +
+        '<span style="font-weight:800">TOTAL</span><span class="p" style="font-size:14px">' + cesc(cfmt(pay.total)) + '</span></div>';
+    const chk = pay.checklist
+      ? '<div class="rptsec"><div class="h">CHECKLIST — ' + cesc(String(pay.checklist.name || '').toUpperCase()) +
+        '  (' + (pay.checklist.items || []).filter(i => i.p).length + '/' + (pay.checklist.items || []).length + ')</div>' +
+        (pay.checklist.items || []).map(i =>
+          '<div style="font-size:12px;color:var(--ink);padding:3px 0">' + (i.p ? '[x]' : '[  ]') + '  ' + cesc(i.l) + '</div>').join('') +
+        '</div>'
+      : '';
+    const ph = pay.photoTotal
+      ? '<div class="rptsec"><div class="h">PHOTOGRAPHIC EVIDENCE</div>' +
+        '<div style="font-size:12px;color:var(--muted)">' + pay.photoTotal + ' photograph' +
+        (pay.photoTotal === 1 ? '' : 's') + ' on file for this job' +
+        (pay.photos && pay.photos.before ? ' · ' + pay.photos.before + ' before' : '') +
+        (pay.photos && pay.photos.during ? ' · ' + pay.photos.during + ' during' : '') +
+        (pay.photos && pay.photos.after ? ' · ' + pay.photos.after + ' after' : '') +
+        '. The pictures travel in the PDF copy of this report.</div></div>'
+      : '';
+    const sigBox = (label, role) => {
+      const sg = pay.sigs && pay.sigs[role];
+      return '<div class="sigbox"><div class="rl" style="color:' + (sg ? '#0E7C5A' : '#94A3B8') + '">' +
+        (sg ? '✓' : '—') + ' ' + label + '</div><div style="height:34px"></div>' +
+        '<div class="nm">' + cesc(sg ? sg.name : 'Not signed') + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">' + (sg && sg.at ? cesc(cdstr(sg.at) + ' ' + ctstr(sg.at)) : '') + '</div></div>';
+    };
+    const CFGD = (global.CONFIG && global.CONFIG.domain) || 'field.rehoteq.com';
+    return '<div style="min-height:100vh;background:#F8FAFB;padding-bottom:96px">' +
+      '<div class="rpthdr"><div class="lg"><div class="sq">R</div><div>' +
+        '<h3>SERVICE REPORT</h3><p>' + cesc(pay.company.name) + '</p></div></div>' +
+        '<div class="rptref"><span>' + cesc(pay.ref) + '</span><span>' + cesc(cdstr(pay.issuedAt)) + ' · ' + cesc(pay.stage) + '</span></div></div>' +
+      (contact ? '<div style="padding:8px 16px 0;font-size:11px;color:var(--muted)">' + cesc(contact) + '</div>' : '') +
+      '<div style="padding:12px 16px">' +
+      (kv.length ? '<div class="rptkv">' + kv.map(x =>
+        '<div class="k">' + x[0] + '</div><div class="val">' + cesc(x[1]) + '</div>').join('') + '</div>' : '') +
+      sections.map(x => '<div class="rptsec"><div class="h">' + x[0] + '</div><div class="v">' + cesc(x[1]) + '</div></div>').join('') +
+      ((pay.materials || pay.labour) ? '<div class="rptsec"><div class="h">Materials &amp; labour</div>' + rows + '</div>' : '') +
+      chk + ph +
+      '<div class="sigs">' + sigBox('Customer', 'customer') + sigBox('Technician', 'technician') + '</div>' +
+      '<div class="verify">Record reference · ' + cesc(CFGD) + '/v/<b>' + cesc(String(pay.ref).replace(/[^A-Za-z0-9]/g, '')) + '</b>' +
+        (pay.hashes ? '<br><span style="font-size:9px;opacity:.8" class="mono">' + pay.hashes + ' photo digest' +
+          (pay.hashes === 1 ? '' : 's') + ' recorded on this job card</span>' : '') + '</div>' +
+      '<div class="disclaim">This report records work performed as described. It is not a certificate of ' +
+        'regulatory compliance unless issued by a licensed contractor.</div>' +
+      '<div style="font-size:10px;color:var(--muted);padding-top:10px">Prepared by ' + cesc(pay.tech || '—') + ' · ' + cesc(pay.company.name) + '</div>' +
+      '</div>' +
+      '<div class="actionbar"><button class="btn primary" style="width:100%" onclick="window.print()">' +
+        'Save as PDF</button></div>' +
+      '</div>';
+  }
+
+  function renderClient(root, pay) {
+    if (root) root.innerHTML = clientHtml(pay);
+  }
+
+  global.REPORT = { buildReport: buildReport, buildQuote: buildQuote, fmt: fmt,
+    clientPayload: clientPayload, clientLink: clientLink, clientFromLink: clientFromLink,
+    clientHtml: clientHtml, renderClient: renderClient };
 })(window);

@@ -2768,6 +2768,15 @@
           ${j.hashes && j.hashes.length ? `<br><span style="font-size:9px;opacity:.8" class="mono">${j.hashes.length} photo digest${j.hashes.length === 1 ? '' : 's'} recorded on this job card</span>` : ''}</div>
         <div class="disclaim">This report records work performed as described. It is not a certificate of
           regulatory compliance unless issued by a licensed contractor.</div>
+        <div style="padding:0 16px 10px">
+          <div style="font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.06em;margin:2px 0 7px">SEND TO THE CLIENT</div>
+          <div class="btnrow">
+            <button class="btn ghost sm" style="flex:1" onclick="ACT.shareClientReport('wa')">${ICON('share-2', 14)} WhatsApp</button>
+            <button class="btn ghost sm" style="flex:1" onclick="ACT.shareClientReport('mail')">${ICON('send', 14)} Email</button>
+            <button class="btn ghost sm" style="flex:1" onclick="ACT.shareClientReport('copy')">${ICON('clipboard-list', 14)} Copy link</button>
+          </div>
+          <div class="hintline" style="margin-top:8px">The link opens the report in any browser — no app, no account. Photos and signatures travel with the PDF.</div>
+        </div>
       </div>
       <div class="actionbar">
         <button class="btn ghost" style="flex:0 0 30%" onclick="ACT.go('jobcard')">Edit</button>
@@ -4595,6 +4604,44 @@
       toast(copied ? 'Link copied' : 'Could not copy', copied ? 'Paste it in their WhatsApp chat' : 'Use Share the link instead');
     },
 
+    async shareClientReport(kind) {
+      const j = S.job;
+      if (!j || !j.ref) return toast('No report on screen', 'Open a job first');
+      // Photo COUNTS ride in the link; photo bytes cannot. The client
+      // page states the count and points at the PDF for the images.
+      const by = S.photos[j.id] || {};
+      const counts = {};
+      ['before', 'during', 'after', 'serial'].forEach(st => {
+        const n = (by[st] || []).length;
+        if (n) counts[st] = n;
+      });
+      const link = REPORT.clientLink(Object.assign({}, j, { _photoCounts: counts }), docProfile());
+      if (!link) return toast('Could not build the link', 'Send the PDF file instead');
+      const prof = docProfile();
+      const title = 'Service report ' + j.ref + ' — ' + ((prof && prof.company) || 'REHOTEQ Field');
+      const text = title + '\n' + link;
+      if (kind === 'wa') {
+        const num = CONFIG.waNumber(j.customer && j.customer.phone) || '';
+        window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(text), '_blank');
+        return;
+      }
+      if (kind === 'mail') {
+        const to = (j.customer && j.customer.email) || '';
+        window.open('mailto:' + to + '?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text), '_blank');
+        return;
+      }
+      let copied = false;
+      try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(link); copied = true; } } catch (e) { /* fall through */ }
+      if (!copied) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = link; document.body.appendChild(ta); ta.select();
+          copied = document.execCommand('copy'); document.body.removeChild(ta);
+        } catch (e) { /* fall through */ }
+      }
+      toast(copied ? 'Link copied' : 'Could not copy', copied ? "Paste it in the client's chat or email" : 'Use WhatsApp or Email instead');
+    },
+
     async joinFromLink() {
       const f = S.pendingInvite;
       if (!f) return toast('No invite waiting', 'Ask your oga to resend the link');
@@ -4890,6 +4937,11 @@
 
   /* ---------------- boot ---------------------------------------------- */
   async function boot() {
+    // A client opening a report link sees one branded report page and
+    // nothing else: no database, no navigation, nothing writable. The
+    // app itself does not even start for them.
+    const clientReport = REPORT.clientFromLink(location.href);
+    if (clientReport) { REPORT.renderClient(app(), clientReport); return; }
     S.user = await DB.getMeta('user');
     S.accounts = (await DB.getMeta('accounts')) || [];
     S.lastBackup = await DB.getMeta('lastBackup');

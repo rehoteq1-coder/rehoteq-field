@@ -1506,6 +1506,77 @@ async function suiteInviteLinks(w) {
   await T.load();
 }
 
+/* =====================================================================
+   SUITE — client report links (Phase 2)
+
+   A finished report packs into a link, the client opens it in any
+   browser, and everything hostile is escaped on the way in.
+   ===================================================================== */
+async function suiteClientReports(w) {
+  describe('8. Client report links — reports to clients by URL');
+  const R = w.REPORT;
+  ok(typeof R.clientLink === 'function' && typeof R.clientFromLink === 'function' &&
+     typeof R.clientHtml === 'function', 'client link build, parse and render live on REPORT');
+
+  const JOB = {
+    ref: 'JOB-2026-001', status: 'completed',
+    startedAt: '2026-10-20T09:00:00.000Z', completedAt: '2026-10-21T16:30:00.000Z',
+    jobType: 'Inverter servicing', trade: 'solar',
+    customer: { name: 'Chief Client <script>', phone: '0803 111 0000', address: '12 Akure Road' },
+    site: { address: '12 Akure Road, Okitipupa' },
+    equipment: { capacity: '5kVA', model: 'Growatt SPF', serial: 'GW-777', installDate: '2025-01-10' },
+    instructions: 'Come with a ladder', fault: 'No output <img src=x onerror=alert(1)>',
+    diagnosis: 'Faulty MOSFET bank', work: 'Replaced MOSFET bank', recommendation: 'Annual service',
+    materials: [{ desc: 'MOSFET', qty: 4, unit: 'pcs', unitPrice: 2500 }], labour: 5000,
+    checklist: { name: 'Inverter checks', items: [
+      { l: 'DC bus torque check', passed: true }, { l: 'Fan dusting', passed: false }] },
+    signatures: { customer: { name: 'Chief Client', at: '2026-10-21T16:00:00.000Z' } },
+    hashes: ['h1', 'h2'],
+    _photoCounts: { before: 2, after: 1 }
+  };
+  const PROF = { company: 'Link Crew Ltd', phone: '0803 555 7777', name: 'Link Oga' };
+
+  const pay = R.clientPayload(JOB, PROF);
+  ok(!!pay && pay.ref === 'JOB-2026-001' && pay.company.name === 'Link Crew Ltd',
+    'the payload carries the ref and the company stamp');
+  eq(pay.total, 15000, 'the payload totals materials and labour');
+  eq(pay.photoTotal, 3, 'photo COUNTS ride in the link, not photo bytes');
+  ok(pay.sigs && pay.sigs.customer && pay.sigs.customer.name === 'Chief Client',
+    'signature names and dates ride; the strokes do not');
+
+  const link = R.clientLink(JOB, PROF);
+  ok(!!link && link.indexOf('https://field.rehoteq.com/?report=') === 0,
+    'the report link is a field.rehoteq.com URL');
+  ok(link.length < 9000, 'even a stocked report keeps the link shareable', 'len=' + (link || '').length);
+  const parsed = R.clientFromLink(link);
+  ok(!!parsed && parsed.ref === 'JOB-2026-001' && parsed.job.customer === 'Chief Client <script>',
+    'the link round-trips back into the report payload');
+  ok(!!parsed && parsed.stage === 'Completed' && parsed.materials && parsed.materials[0].d === 'MOSFET',
+    'stage and materials survive the round trip');
+  eq(R.clientFromLink('https://field.rehoteq.com/?report=!!!!'), null, 'a broken report link parses to nothing');
+  eq(R.clientFromLink('https://field.rehoteq.com/'), null, 'a plain URL carries no report');
+  eq(R.clientLink({ ref: '' }, PROF), null, 'a job with no reference produces no link');
+
+  const big = R.clientPayload(Object.assign({}, JOB, { work: 'x'.repeat(5000) }), PROF);
+  ok(big.work.length <= 501, 'an enormous work note is capped, not clipped away', 'len=' + big.work.length);
+
+  const html = R.clientHtml(parsed);
+  ok(html.indexOf('JOB-2026-001') >= 0 && html.indexOf('Link Crew Ltd') >= 0,
+    'the client page renders the ref and the company');
+  ok(html.indexOf('<script>') < 0 && html.indexOf('&lt;script&gt;') >= 0 &&
+     html.indexOf('<img') < 0 && html.indexOf('&lt;img') >= 0,
+    'everything the client sees is escaped, hostile text included');
+  ok(html.indexOf('photograph') >= 0 && html.indexOf('the PDF copy') >= 0,
+    'the page states the photo count honestly and points at the PDF');
+  ok(html.indexOf('not a certificate') >= 0, 'the disclaimer rides to the client too');
+
+  // The route and the buttons are wired in the real app source.
+  const appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  ok(appSrc.includes('REPORT.clientFromLink(location.href)'), 'boot answers a report link before the app starts');
+  ok(appSrc.includes("ACT.shareClientReport('wa')") && appSrc.includes("ACT.shareClientReport('mail')"),
+    'the report view offers WhatsApp and Email shares');
+}
+
 async function suiteAi(w) {
   describe('7. AI diagnosis — grounded in the library, safety first, human-confirmed');
 
@@ -2646,6 +2717,7 @@ async function suiteCloudBackup(w) {
   await suiteWelcomeTrial(w);
   await suiteTeam(w);
   await suiteInviteLinks(w);
+  await suiteClientReports(w);
   await suiteAi(w);
   await suiteLandingAndOwner(w);
   await suiteAccountsQuota(w);
