@@ -167,8 +167,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v45'/.test(swSrc),
-    'the service-worker cache is bumped to v45 for the release');
+  ok(/const CACHE = 'rehoteq-field-v46'/.test(swSrc),
+    'the service-worker cache is bumped to v46 for the release');
   ok(/'zip\.js'/.test(swSrc), 'sw.js caches zip.js, or a restored phone cannot unpack offline');
 
   ok(typeof w.ICON === 'function', 'ICON() is exposed to the page');
@@ -2205,7 +2205,7 @@ async function suiteCloudBackup(w) {
   const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
     .split(/\s+/).map(x => x.trim()).filter(Boolean);
   ok(deployList.includes('zip.js'), 'deploy.yml publishes zip.js — the app would crash on a phone without it');
-  ok(swSrc.includes('rehoteq-field-v45'), 'the service-worker cache is bumped to v45');
+  ok(swSrc.includes('rehoteq-field-v46'), 'the service-worker cache is bumped to v46');
   ok(deployList.includes('app.js') && deployList.includes('firebase.js'),
     'the rest of the shell still publishes');
 
@@ -2402,12 +2402,15 @@ async function suiteCloudBackup(w) {
   page.FB.profile = async () => ({ plan: 'pro' });
   page.ACT._setFbUserForTest({ uid: 'u1', email: 'toye@gmail.com', name: 'Toye' });
 
+  await page.DB.queue({ type: 'test.queued', id: 'q1' });
+  eq((await page.DB.pending()).length >= 1, true, 'the queue holds the item before any backup carries it');
   await page.ACT.cloudBackup();
   eq(uploads.length, 1, 'one tap sends exactly one bundle');
   ok(!!uploads[0].blob && uploads[0].meta.jobs === 2 && uploads[0].meta.photos === 1 && uploads[0].meta.bytes > 0,
     'the upload carries the jobs, the photo and the byte count the label needs');
   ok(/Backed up to the cloud/.test(toastText()) && /\d{2} \w{3} \d{4}/.test(toastText()),
     'the toast says it worked and prints the date, not just a spinner');
+  eq((await page.DB.pending()).length, 0, 'a finished backup drains the sync queue: nothing is left waiting to sync');
   const cloudState = page.ACT._cloudForTest().cloud;
   ok(!!cloudState.latest && cloudState.latest.jobs === 2 && cloudState.latest.bytes > 0,
     'the app records what is now in the cloud, so the card can tell the truth after a reload');
@@ -2481,6 +2484,7 @@ async function suiteCloudBackup(w) {
   }
 
   /* ---- the message says what is live, not what was planned ----------- */
+  await page.DB.queue({ type: 'test.queued', id: 'q-msg' });
   await page.ACT.syncInfo();
   ok(/waiting to sync/.test(toastText()) && !/Supabase|Phase 3/i.test(toastText()),
     'the pending-work message no longer promises a Phase 3 that already shipped');
@@ -2802,7 +2806,7 @@ async function suiteCloudBackup(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v45'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v46'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
