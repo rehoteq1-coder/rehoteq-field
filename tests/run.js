@@ -167,8 +167,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v56'/.test(swSrc),
-    'the service-worker cache is bumped to v56 for the release');
+  ok(/const CACHE = 'rehoteq-field-v57'/.test(swSrc),
+    'the service-worker cache is bumped to v57 for the release');
   ok(/'zip\.js'/.test(swSrc), 'sw.js caches zip.js, or a restored phone cannot unpack offline');
   ok(/shellEligible/.test(swSrc) && /Promise\.reject\(new Error\('offline'\)\)/.test(swSrc),
     'the offline shell fallback never answers a cross-origin data request');
@@ -2302,7 +2302,7 @@ async function suiteCloudBackup(w) {
   const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
     .split(/\s+/).map(x => x.trim()).filter(Boolean);
   ok(deployList.includes('zip.js'), 'deploy.yml publishes zip.js — the app would crash on a phone without it');
-  ok(swSrc.includes('rehoteq-field-v56'), 'the service-worker cache is bumped to v51');
+  ok(swSrc.includes('rehoteq-field-v57'), 'the service-worker cache is bumped to the current release');
   ok(deployList.includes('app.js') && deployList.includes('firebase.js'),
     'the rest of the shell still publishes');
 
@@ -2840,8 +2840,14 @@ async function suiteCloudBackup(w) {
       'the Add-a-technician wizard exists with its step cards');
     ok(/Import file from WhatsApp/.test(wApp),
       'importing a crew file is called what it is, not Receive file');
-    ok(wApp.indexOf('R_MARK_SRC') !== -1 && wApp.indexOf('data:image/png') !== -1,
-      'the welcome screen carries the real R mark, embedded');
+    ok(wApp.indexOf('WELCOME_MARK_SVG') !== -1 && wApp.indexOf('<svg class="w-svg"') !== -1,
+      'the welcome screen carries the animated SVG mark');
+    ok(wApp.indexOf('class="w-sweep') !== -1 && wCss.indexOf('wSweep') !== -1,
+      'the mark carries the travelling border sweep');
+    ok(wApp.indexOf('class="w-wrench"') !== -1 && wCss.indexOf('wWiggle') !== -1,
+      'the mark carries the field wrench with its wiggle');
+    ok(!/rgba\(163,230,53/.test(require('fs').readFileSync('styles.css','utf8')),
+      'no lime green left in the welcome glow');
     ok(/w-mark-glow/.test(wApp), 'the R mark carries an animated glow ring');
     ok(wCss.indexOf('@media (min-width:900px)') !== -1,
       'the welcome screen has a desktop layout');
@@ -2909,7 +2915,7 @@ async function suiteCloudBackup(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v56'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v57'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');

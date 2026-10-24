@@ -442,21 +442,29 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
   display:grid;place-items:center}
 .welcome .w-mark-glow{position:absolute;inset:-26px;border-radius:50%;
   background:radial-gradient(circle at 66% 28%,rgba(34,211,238,.5),transparent 55%),
-    radial-gradient(circle at 26% 74%,rgba(163,230,53,.45),transparent 55%),
+    radial-gradient(circle at 26% 74%,rgba(167,139,250,.45),transparent 55%),
     radial-gradient(circle at 50% 50%,rgba(76,29,149,.75),transparent 72%);
   filter:blur(16px);animation:wPulse 5s ease-in-out infinite}
 @keyframes wPulse{0%,100%{opacity:.5}50%{opacity:.9}}
-.welcome .w-mark img{width:150px;height:auto;object-fit:contain;
+.welcome .w-mark img,.welcome .w-mark svg.w-svg{width:150px;height:auto;object-fit:contain;
   animation:wFloat 6s ease-in-out infinite,wGlow 4.5s ease-in-out infinite}
 @keyframes wSpin{to{transform:rotate(360deg)}}
 @keyframes wFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
-@keyframes wGlow{0%,100%{filter:drop-shadow(0 6px 20px rgba(0,0,0,.45)) drop-shadow(0 0 12px rgba(163,230,53,.25))}
+@keyframes wGlow{0%,100%{filter:drop-shadow(0 6px 20px rgba(0,0,0,.45)) drop-shadow(0 0 12px rgba(34,211,238,.25))}
   50%{filter:drop-shadow(0 6px 20px rgba(0,0,0,.45)) drop-shadow(0 0 26px rgba(167,139,250,.55))}}
+.welcome .w-sweep{fill:none;stroke:url(#wNeon);stroke-linecap:round;stroke-linejoin:round;
+  animation:wSweep 3.4s linear infinite}
+.welcome .w-sweep-core{stroke-width:5;opacity:.95}
+.welcome .w-sweep-soft{stroke-width:9.5;opacity:.35}
+@keyframes wSweep{from{stroke-dashoffset:0}to{stroke-dashoffset:-316.6}}
+.welcome .w-wrench{transform-box:fill-box;transform-origin:center;
+  animation:wWiggle 2.6s ease-in-out infinite}
+@keyframes wWiggle{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
 .welcome .w-name{font-size:28px;font-weight:700;letter-spacing:.01em;margin-top:16px;
   background:linear-gradient(100deg,#FFFFFF 25%,#F3E8FF 42%,#A78BFA 54%,#FFFFFF 72%,#FFFFFF 100%);
   background-size:220% 100%;-webkit-background-clip:text;background-clip:text;
   -webkit-text-fill-color:transparent;color:transparent;
-  filter:drop-shadow(0 2px 16px rgba(120,255,190,.28));
+  filter:drop-shadow(0 2px 16px rgba(167,139,250,.28));
   animation:wShine 6s ease-in-out infinite}
 @keyframes wShine{0%,100%{background-position:120% 0}50%{background-position:-20% 0}}
 .welcome .w-name em{font-style:normal;
@@ -464,7 +472,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
   -webkit-background-clip:text;background-clip:text;
   -webkit-text-fill-color:transparent;color:transparent}
 .welcome .w-tag{font-size:17px;font-weight:600;letter-spacing:.02em;color:#C4B5FD;
-  margin-top:8px;text-shadow:0 0 16px rgba(163,230,53,.35)}
+  margin-top:8px;text-shadow:0 0 16px rgba(167,139,250,.35)}
 .welcome .w-lead{font-size:13.5px;line-height:1.7;color:rgba(255,255,255,.88);
   margin-top:12px;max-width:360px;margin-left:auto;margin-right:auto}
 .welcome .w-metrics{display:flex;justify-content:center;gap:26px;margin-top:22px;
@@ -508,6 +516,6 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
   .welcome .w-actions{max-width:430px}
 }
 @media (prefers-reduced-motion:reduce){
-  .welcome .w-mark img,.welcome .w-mark-glow,.welcome .w-orb{animation:none}
+  .welcome .w-mark img,.welcome .w-mark svg.w-svg,.welcome .w-sweep,.welcome .w-wrench,.welcome .w-mark-glow,.welcome .w-orb{animation:none}
   .welcome .w-name{animation:none}
 }
