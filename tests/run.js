@@ -167,7 +167,7 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v47'/.test(swSrc),
+  ok(/const CACHE = 'rehoteq-field-v48'/.test(swSrc),
     'the service-worker cache is bumped to v46 for the release');
   ok(/'zip\.js'/.test(swSrc), 'sw.js caches zip.js, or a restored phone cannot unpack offline');
 
@@ -1388,6 +1388,32 @@ async function suiteTeam(w) {
   eq((await T.restore(null)).ok, true, 'restoring a pre-teams backup is a no-op, not an error');
   w.ACT.go('home');
   await sleep(30);
+  w.ACT.go('home');
+  await sleep(30);
+
+  // The team survives a restart. A fresh boot reloads the company from
+  // meta and My team must open the crew, not the landing.
+  const page2 = bootApp();
+  await sleep(200);
+  page2.ACT.go('team');
+  await sleep(100);
+  const t2 = page2.document.body.textContent || '';
+  ok(!t2.includes('Run a crew, or join one') && t2.includes('Oga & Sons'),
+    'after a restart My team opens the crew, not the landing');
+
+  // A phone can hold a crew while a different profile is signed in. That
+  // must never read as if the crew vanished: the screen names the crew,
+  // the owner, and the way back in.
+  page2.TEAM._testAs({ uid: 'stranger-1', name: 'Stranger Strange', trade: 'solar' });
+  await page2.TEAM.load();
+  page2.ACT.go('team');
+  await sleep(80);
+  const t3 = page2.document.body.textContent || '';
+  ok(t3.includes('Oga & Sons') && t3.includes('Owner Oga') && t3.includes('Stranger Strange'),
+    'a stranger profile sees whose crew it is and who owns it');
+  ok(!t3.includes('Run a crew, or join one'), 'the stranger screen is never the generic landing');
+  ok(page2.document.body.innerHTML.includes("loginAccount("),
+    'the stranger screen offers the one-tap way back to the owner');
 }
 
 /* =====================================================================
@@ -2274,7 +2300,7 @@ async function suiteCloudBackup(w) {
   const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
     .split(/\s+/).map(x => x.trim()).filter(Boolean);
   ok(deployList.includes('zip.js'), 'deploy.yml publishes zip.js — the app would crash on a phone without it');
-  ok(swSrc.includes('rehoteq-field-v47'), 'the service-worker cache is bumped to v46');
+  ok(swSrc.includes('rehoteq-field-v48'), 'the service-worker cache is bumped to v48');
   ok(deployList.includes('app.js') && deployList.includes('firebase.js'),
     'the rest of the shell still publishes');
 
@@ -2876,7 +2902,7 @@ async function suiteCloudBackup(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v47'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v48'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
