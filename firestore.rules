@@ -34,10 +34,15 @@ service cloud.firestore {
     // The owner may read the account register to run Field HQ; they still
     // get no customer jobs, which carry the private data.
     function isOwner() {
+      // NB: the email claim must be matched with matches(), not
+      // .toLowerCase() ==. In the rules engine calling toLowerCase() on a
+      // token claim evaluates as an error and denies the whole rule (found
+      // on the Firestore emulator and confirmed by the console simulator,
+      // 2026-10-24). matches() with the (?i) flag is case-insensitive and
+      // evaluates fine.
       return signedIn()
-        && request.auth.token.email != null
-        && (request.auth.token.email.toLowerCase() == 'rehoteq@gmail.com'
-            || request.auth.token.email.toLowerCase() == 'rehoteq1@gmail.com');
+        && (request.auth.token.email.matches('(?i)^rehoteq@gmail\\.com$')
+            || request.auth.token.email.matches('(?i)^rehoteq1@gmail\\.com$'));
     }
 
     function isLeadOf(companyId) {
@@ -50,7 +55,9 @@ service cloud.firestore {
     // paywall would be a lie again — the whole point of moving to a server
     // was that the technician does not get to decide whether he has paid.
     function entitlementKeys() {
-      return ['plan', 'trialEndsAt', 'expiresAt', 'entitlementSource', 'lastPaymentRef'].toSet();
+      // Plain list: hasAny() takes a list, not a Set. Passing the .toSet()
+      // result made every profile update evaluate as an error (denied).
+      return ['plan', 'trialEndsAt', 'expiresAt', 'entitlementSource', 'lastPaymentRef'];
     }
     function touchesEntitlement() {
       return request.resource.data.diff(resource.data)
