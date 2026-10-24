@@ -572,6 +572,49 @@
   // The old .json backup — every photo carried as base64 inside the JSON.
   // Still readable: a technician who backed up in v1.8.x must never lose
   // that file to an upgrade.
+
+  // v1.9.3 — the cloud copy was not always today's zip. Older builds kept
+  // the backup as one JSON file, and an interrupted upload leaves a zip
+  // with no end-of-directory record. The file-restore path already
+  // tolerates the JSON shape (readJsonBackup); the cloud path now does
+  // too, and when the stored copy is neither shape the error names its
+  // size and first bytes, so a support ask can be answered in one look.
+  async function unpackCloudCopy(copy) {
+    let bytes;
+    if (copy instanceof Uint8Array) bytes = copy;
+    else if (copy instanceof ArrayBuffer) bytes = new Uint8Array(copy);
+    else bytes = new Uint8Array(await copy.arrayBuffer());
+    if (ZIP.isZip(bytes)) {
+      try { return await BACKUP.unpack(bytes); }
+      catch (e) {
+        const msg = String((e && e.message) || e);
+        if (/no end-of-directory|damaged zip|runs past the end|truncated/i.test(msg)) {
+          throw new Error('the stored copy is ' + mbLine(bytes.length) +
+            ' of an unfinished zip upload (' + msg + ') — nothing was deleted');
+        }
+        throw e;
+      }
+    }
+    const text = (typeof copy.text === 'function') ? await copy.text()
+      : new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    const trimmed = String(text).replace(/\s+/g, '');
+    if (trimmed.charAt(0) === '{') {
+      try { return await readJsonBackup(new Blob([text], { type: 'application/json' })); } catch (e) { /* fall through */ }
+    }
+    if (trimmed.slice(0, 4) === 'UEsD' && /^[A-Za-z0-9+/=]{8,}$/.test(trimmed.slice(0, 4096))) {
+      try {
+        const bin = atob(trimmed);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        if (ZIP.isZip(u8)) return await BACKUP.unpack(u8);
+      } catch (e) { /* fall through */ }
+    }
+    const head = Array.prototype.map.call(bytes.subarray(0, 24),
+      function (b) { return (b >= 32 && b < 127) ? String.fromCharCode(b) : '.'; }).join('');
+    throw new Error('not a REHOTEQ backup (the stored copy is ' + mbLine(bytes.length) +
+      ' and begins "' + head + '")');
+  }
+
   async function readJsonBackup(file) {
     let data;
     try { data = JSON.parse(await file.text()); }
@@ -4536,7 +4579,7 @@
       render();
       try {
         const blob = await window.FB.cloudDownload();
-        const p = await BACKUP.unpack(blob);
+        const p = await unpackCloudCopy(blob);
         S.cloud.lastRestore = { at: new Date().toISOString(), from: p.exportedAt };
         const r = await applyRestore(p);
         S.lastBackup = S.lastBackup || p.exportedAt || new Date().toISOString();
