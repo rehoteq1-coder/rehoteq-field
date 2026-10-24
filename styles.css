@@ -7,7 +7,7 @@
    with greasy hands. Big targets, high contrast, no tiny text. */
 
 :root{
-  --primary:#0E7C5A; --primary-d:#0A5C42; --primary-l:#E6F4EF;
+  --primary:#6D28D9; --primary-d:#5B21B6; --primary-l:#F3E8FF;
   --amber:#F59E0B; --amber-l:#FEF3C7;
   --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --bg:#F1F5F4;
   --danger:#DC2626; --danger-l:#FEE2E2;
@@ -28,12 +28,12 @@ body{
      so the app reads as a workshop bench under good light — a place an
      engineer wants to open, not an empty form. */
   background:
-    radial-gradient(120% 80% at 88% -8%, rgba(14,124,90,.26), transparent 60%),
-    radial-gradient(90% 60% at -12% 104%, rgba(37,99,235,.16), transparent 55%),
-    radial-gradient(70% 55% at 104% 88%, rgba(124,58,237,.10), transparent 55%),
-    repeating-linear-gradient(0deg, rgba(14,124,90,.065) 0 1px, transparent 1px 30px),
-    repeating-linear-gradient(90deg, rgba(14,124,90,.065) 0 1px, transparent 1px 30px),
-    linear-gradient(180deg,#E7F3ED 0%,#D5E6DD 100%);position:relative;overflow:hidden;
+    radial-gradient(120% 80% at 88% -8%, rgba(109,40,217,.20), transparent 60%),
+    radial-gradient(90% 60% at -12% 104%, rgba(37,99,235,.13), transparent 55%),
+    radial-gradient(70% 55% at 104% 88%, rgba(34,211,238,.09), transparent 55%),
+    repeating-linear-gradient(0deg, rgba(109,40,217,.055) 0 1px, transparent 1px 30px),
+    repeating-linear-gradient(90deg, rgba(109,40,217,.055) 0 1px, transparent 1px 30px),
+    linear-gradient(180deg,#EFEAF9 0%,#E2DAF1 100%);position:relative;overflow:hidden;
   display:flex;flex-direction:column;
   box-shadow:0 0 60px rgba(0,0,0,.5);
 }
@@ -57,7 +57,7 @@ body{
 .statusbar{height:30px;flex:none;display:flex;align-items:center;justify-content:space-between;
   padding:0 18px;font-size:11.5px;font-weight:700;background:transparent}
 .statusbar .r{display:flex;gap:5px;align-items:center}
-.appbar{flex:none;background:linear-gradient(150deg,#0B6B4D 0%,#0E7C5A 52%,#0F8A66 100%);padding:8px 16px 10px;border-bottom:1px solid rgba(255,255,255,.16);box-shadow:0 8px 22px rgba(6,78,59,.30)}
+.appbar{flex:none;background:linear-gradient(150deg,#4C1D95 0%,#6D28D9 52%,#7C3AED 100%);padding:8px 16px 10px;border-bottom:1px solid rgba(255,255,255,.16);box-shadow:0 8px 22px rgba(49,26,109,.32)}
 .appbar .row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:34px}
 .appbar .ttl{flex:1;text-align:center;font-size:15px;font-weight:700;letter-spacing:-.01em;color:#fff}
 .appbar .sub{text-align:center;font-size:10.5px;color:rgba(255,255,255,.78);font-weight:600;margin-top:1px}
@@ -89,7 +89,7 @@ body{
   cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px}
 .btn:active{transform:scale(.985)}
 .btn.primary{background:linear-gradient(145deg,var(--primary),var(--primary-d));color:#fff;
-  box-shadow:0 8px 20px rgba(14,124,90,.26)}
+  box-shadow:0 8px 20px rgba(109,40,217,.26)}
 .btn.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line)}
 .btn.dark{background:var(--ink);color:#fff}
 .btn.sm{padding:12px;font-size:13.5px;border-radius:12px}
@@ -100,7 +100,7 @@ body{
 /* ---------- tiles ---------- */
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .tile{background:#fff;border:1.5px solid #DCE9E3;border-radius:15px;padding:14px 12px;
-  box-shadow:0 1px 2px rgba(15,23,42,.04),0 8px 20px rgba(14,124,90,.07);
+  box-shadow:0 1px 2px rgba(15,23,42,.04),0 8px 20px rgba(109,40,217,.07);
   cursor:pointer;display:flex;flex-direction:column;gap:6px;text-align:left;font-family:inherit;position:relative}
 .tile:active{transform:scale(.975)}
 .tile .ic{font-size:21px;line-height:1}
@@ -113,7 +113,7 @@ body{
 
 /* ---------- cards ---------- */
 .card{background:#fff;border:1px solid #DCE9E3;border-radius:16px;overflow:hidden;margin-bottom:12px;
-  box-shadow:0 1px 2px rgba(15,23,42,.04),0 10px 26px rgba(14,124,90,.08)}
+  box-shadow:0 1px 2px rgba(15,23,42,.04),0 10px 26px rgba(109,40,217,.08)}
 .card .ch{padding:12px 14px 0;font-size:10px;font-weight:750;letter-spacing:.08em;color:var(--muted);
   text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
 .card .cb{padding:10px 14px 13px}
@@ -247,7 +247,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .searchbox input{padding-left:36px}
 .searchbox .si{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:13px;opacity:.5}
 .libcard{background:#fff;border:1px solid #DCE9E3;border-radius:14px;padding:13px 14px;margin-bottom:10px;cursor:pointer;
-  box-shadow:0 1px 2px rgba(15,23,42,.04),0 8px 20px rgba(14,124,90,.07)}
+  box-shadow:0 1px 2px rgba(15,23,42,.04),0 8px 20px rgba(109,40,217,.07)}
 .libcard:active{background:var(--bg)}
 .libcard .lt{font-size:13.5px;font-weight:680;line-height:1.35}
 .libcard .lm{font-size:11px;color:var(--muted);margin-top:4px;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
@@ -348,9 +348,9 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 
 /* --- landing & onboarding showcase --------------------------------- */
 .hero-land{
-  background:linear-gradient(155deg,#052E21 0%,#0A5C42 52%,#0E7C5A 100%);
+  background:linear-gradient(155deg,#1E1B4B 0%,#4C1D95 52%,#6D28D9 100%);
   color:#fff;border-radius:20px;padding:18px 16px 16px;margin-bottom:14px;
-  box-shadow:0 16px 36px rgba(6,48,34,.28);position:relative;overflow:hidden;
+  box-shadow:0 16px 36px rgba(30,27,75,.32);position:relative;overflow:hidden;
 }
 .hero-land .eyebrow{
   display:inline-flex;align-items:center;gap:6px;
@@ -401,7 +401,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
   background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:12px 11px;
   text-align:left;cursor:pointer;font-family:inherit;display:flex;flex-direction:column;gap:4px;
 }
-.role-tab.on{border-color:var(--primary);background:var(--primary-l);box-shadow:0 4px 12px rgba(14,124,90,.12)}
+.role-tab.on{border-color:var(--primary);background:var(--primary-l);box-shadow:0 4px 12px rgba(109,40,217,.12)}
 .role-tab .rt-top{display:flex;align-items:center;justify-content:space-between;color:var(--primary-d)}
 .role-tab .rt-t{font-size:13px;font-weight:800;color:var(--ink)}
 .role-tab .rt-d{font-size:10.5px;color:var(--muted);line-height:1.35}

@@ -2305,11 +2305,19 @@
           </button>
         </div>` : `
         <div class="center" style="margin-bottom:22px">
-          <div style="width:56px;height:56px;border-radius:17px;margin:0 auto 10px;
-            background:linear-gradient(145deg,#0E7C5A,#0A5C42);display:grid;place-items:center;
-            box-shadow:0 12px 28px rgba(14,124,90,.28)">
-            <span style="font-size:23px;font-weight:800;color:#fff">R</span></div>
-          <div style="font-size:21px;font-weight:800;letter-spacing:-.03em">REHOTEQ <span style="color:#0E7C5A">Field</span></div>
+          <div style="position:relative;width:126px;height:112px;margin:0 auto 10px;display:grid;place-items:center">
+            <svg viewBox="0 0 100 100" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+              <defs><linearGradient id="hexglow" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#A78BFA"/><stop offset="1" stop-color="#22D3EE"/>
+              </linearGradient></defs>
+              <polygon points="50,5 91,27.5 91,72.5 50,95 9,72.5 9,27.5" fill="none" stroke="url(#hexglow)" stroke-width="3.4" stroke-linejoin="round" style="filter:drop-shadow(0 0 9px rgba(124,58,237,.55))"/>
+            </svg>
+            <div style="width:56px;height:56px;border-radius:17px;
+              background:linear-gradient(145deg,#7C3AED,#4C1D95);display:grid;place-items:center;
+              box-shadow:0 12px 28px rgba(76,29,149,.38)">
+              <span style="font-size:23px;font-weight:800;color:#fff">R</span></div>
+          </div>
+          <div style="font-size:21px;font-weight:800;letter-spacing:-.03em">REHOTEQ <span style="color:#6D28D9">Field</span></div>
           <div style="font-size:12px;color:#64748B;margin-top:4px">Edit your technician &amp; business profile</div>
         </div>`}
 
@@ -2547,7 +2555,7 @@
               <div class="wt">High-risk condition flagged. Do not re-energise until the fault is physically cleared and verified with a meter.</div>
             </div>` : ''}
           <div class="card" style="margin-bottom:12px">
-            <div class="ch">Ranked causes <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#0E7C5A">
+            <div class="ch">Ranked causes <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#6D28D9">
               ${r.possible_causes.length} verified · ${Math.round((r.confidence || 0.85) * 100)}% match</span></div>
             <div class="cb">
               <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
@@ -2628,7 +2636,7 @@
         </div></div>
         <div class="warnbox"><div class="wh">${ICON('alert-triangle', 14)} Safety first</div><div class="wt">${esc(e.safety)}</div></div>
         <div class="card" style="margin-bottom:12px">
-          <div class="ch">Possible issue <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#0E7C5A">${e.causes.length} found</span></div>
+          <div class="ch">Possible issue <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#6D28D9">${e.causes.length} found</span></div>
           <div class="cb">
             ${e.causes.map((c, i) => `<div class="cause">
               <div class="n">${i + 1}</div>
@@ -2741,7 +2749,7 @@
         ${text('diagnosis', '2 · Diagnosis', 'What you found')}
         ${text('work', '3 · Work performed', 'What you actually did')}
         <div class="card" style="margin-bottom:12px">
-          <div class="ch">4 · Materials used <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#0E7C5A"
+          <div class="ch">4 · Materials used <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#6D28D9"
             onclick="${locked ? '' : 'ACT.addMaterial()'}">+ Add</span></div>
           <div class="cb">
             ${(j.materials || []).length ? j.materials.map((m, i) => `
@@ -2787,7 +2795,7 @@
     const done = items.filter(i => i.passed).length;
     return `
       <div class="pad">
-        <div class="bar" style="margin-bottom:14px"><i style="width:${(done / items.length) * 100}%;background:linear-gradient(90deg,#0E7C5A,#4ADE9E)"></i></div>
+        <div class="bar" style="margin-bottom:14px"><i style="width:${(done / items.length) * 100}%;background:linear-gradient(90deg,#6D28D9,#A78BFA)"></i></div>
         <div class="card">
           ${items.map((it, i) => `
             <div class="ck ${it.passed ? 'done' : ''}" onclick="${j.lockedAt ? '' : 'ACT.tick(' + i + ')'}">
@@ -3184,7 +3192,7 @@
       const days = exp ? Math.round((exp - Date.now()) / 864e5) : null;
       return `
         <div class="pad">
-          <div style="background:linear-gradient(150deg,#0E7C5A,#064E3B);color:#fff;border-radius:18px;padding:17px;margin-bottom:12px">
+          <div style="background:linear-gradient(150deg,#4C1D95,#1E1B4B);color:#fff;border-radius:18px;padding:17px;margin-bottom:12px">
             <div style="font-size:10px;letter-spacing:.11em;opacity:.75;font-weight:700">MY SOLAR SYSTEM</div>
             <div style="font-size:18px;font-weight:800;margin:4px 0 13px">${esc(eq.customerName || 'Customer')}</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">
@@ -3199,7 +3207,7 @@
               <span><b>${days === null ? '—' : Math.max(0, days) + ' days'}</b> left</span></div>
           </div>
           <div class="card" style="margin-bottom:12px">
-            <div class="ch">QR sticker <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#0E7C5A"
+            <div class="ch">QR sticker <span style="text-transform:none;letter-spacing:0;font-weight:700;color:#6D28D9"
               onclick="ACT.printQr()">Print</span></div>
             <div class="cb center">
               <div class="qrbox"><canvas id="qrCv"></canvas></div>
@@ -3261,7 +3269,7 @@
             they open it in their REHOTEQ Field, and they appear on your dashboard.</div>
         </div></div>
         <div class="card" style="margin-top:12px"><div class="cb">
-          <div style="font-size:11px;font-weight:800;color:#0E7C5A">STEP 1 · CREATE THE INVITE</div>
+          <div style="font-size:11px;font-weight:800;color:#6D28D9">STEP 1 · CREATE THE INVITE</div>
           ${stepShare ? `
             <div style="text-align:center;margin:10px 0 2px">
               <div style="font-size:10px;color:var(--muted);letter-spacing:.06em">INVITE CODE</div>
@@ -3280,7 +3288,7 @@
         </div></div>
         ${stepShare ? `
         <div class="card" style="margin-top:12px"><div class="cb">
-          <div style="font-size:11px;font-weight:800;color:#0E7C5A">STEP 2 · SEND IT ON WHATSAPP</div>
+          <div style="font-size:11px;font-weight:800;color:#6D28D9">STEP 2 · SEND IT ON WHATSAPP</div>
           <div style="font-size:12px;color:var(--muted);margin:6px 0 9px">Tap below, choose their chat, and send. The file carries the invite code automatically.</div>
           <button class="btn primary sm" style="width:100%" onclick="ACT.resendInvite('${esc(stepShare.code)}')">
             ${ICON('send', 15)} Send the invite file</button>
@@ -3291,7 +3299,7 @@
           <div class="hintline" style="margin-top:8px">The link is the easy way: they tap it, the app opens, they tap Join. The file still works too.</div>
         </div></div>
         <div class="card" style="margin-top:12px"><div class="cb">
-          <div style="font-size:11px;font-weight:800;color:#0E7C5A">STEP 3 · WHAT THEY DO</div>
+          <div style="font-size:11px;font-weight:800;color:#6D28D9">STEP 3 · WHAT THEY DO</div>
           <div style="font-size:12px;color:var(--muted);line-height:1.8;margin-top:6px">
             With the link: they tap it, tap <b>Join</b>, then <b>Send acceptance</b> — and they appear here when you import it.<br><br>
             With the file: Team tab, <b>Import file from WhatsApp</b>, pick the file, then <b>Send acceptance</b>. You import the acceptance the same way.</div>
@@ -5297,7 +5305,7 @@
           bar.innerHTML =
             '<div style="flex:1;font-size:12px;line-height:1.5">A new version of REHOTEQ Field is installed.' +
             '<span style="display:block;font-size:10.5px;opacity:.72">Reload to switch to it. Your job cards are safe.</span></div>' +
-            '<button id="swUpdateGo" style="border:0;background:#0E7C5A;color:#fff;font:inherit;font-weight:700;' +
+            '<button id="swUpdateGo" style="border:0;background:#6D28D9;color:#fff;font:inherit;font-weight:700;' +
             'font-size:12px;padding:9px 14px;border-radius:9px;cursor:pointer">Reload</button>' +
             '<button id="swUpdateX" aria-label="Dismiss" style="border:0;background:none;color:#94A3B8;' +
             'font:inherit;font-size:16px;cursor:pointer;padding:4px">×</button>';
