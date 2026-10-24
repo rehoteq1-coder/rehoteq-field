@@ -3266,8 +3266,27 @@
     const role = myRole();
     if (role === 'owner' && t.company) return teamOwnerView(t);
     if (role === 'member' && S.user.memberOf) return teamMemberView(t);
+    if (t.company) return teamStrangerView(t);
     return teamNoneView();
   };
+
+  // The phone still holds a crew, but this profile is neither its owner
+  // nor a member. The generic landing read as if the crew had vanished;
+  // this says exactly whose crew it is and how to get back into it.
+  function teamStrangerView(t) {
+    const me = (S.user && S.user.name) || 'this profile';
+    return `
+      <div class="pad">
+        <div class="empty"><div class="ei">${ICON('users', 26)}</div>
+          <div class="et">${esc(t.company.name || 'A crew')}</div>
+          <div class="ed">This crew is saved on this phone, but <b>${esc(me)}</b> is not
+          signed in as its owner or a member. If you run the crew, log back in as
+          ${esc(t.company.ownerName || 'the owner')}; if you are a technician, import
+          the invite or worker file they sent.</div></div>
+        <button class="btn primary sm" onclick="ACT.loginAccount('${esc(t.company.ownerId || '')}')">${ICON('user', 15)} Log in as ${esc(t.company.ownerName || 'the owner')}</button>
+        <button class="btn ghost sm" style="margin-top:9px" onclick="ACT.receiveFile()">${ICON('inbox', 15)} Join a company (import the invite they sent)</button>
+      </div>`;
+  }
 
   function teamOwnerView(t) {
     const s = TEAM.seats();
