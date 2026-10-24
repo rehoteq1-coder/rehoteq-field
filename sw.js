@@ -2,7 +2,7 @@
    Cache the app shell so the technician can open the app in a basement,
    on a rooftop, or anywhere else the network has given up. */
 // Bump this on every deploy, or installed phones keep serving the old app.
-const CACHE = 'rehoteq-field-v49';
+const CACHE = 'rehoteq-field-v50';
 const SHELL = [
   './', 'index.html', '404.html', 'admin.html', 'admin.js', 'styles.css', 'config.js', 'icons.js', 'data.js', 'qr.js',
   'pdf.js', 'zip.js', 'db.js', 'report.js', 'firebase.js', 'app.js', 'manifest.webmanifest',
@@ -40,6 +40,12 @@ function isCacheable(url) {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (isAuthHelper(e.request.url)) return;
+  // The offline shell fallback is for the app's own pages only. A failed
+  // data request (Firebase Storage, Firestore, anything cross-origin) must
+  // fail loudly: serving index.html in its place would hand a data reader
+  // the app shell and make a network hiccup look like a broken backup
+  // (v1.9.3: that is exactly what a cloud restore once received).
+  const shellEligible = new URL(e.request.url).origin === self.location.origin;
   e.respondWith(
     caches.match(e.request).then(hit => {
       if (hit) {
@@ -55,7 +61,7 @@ self.addEventListener('fetch', e => {
           caches.open(CACHE).then(c => c.put(e.request, copy));
         }
         return res;
-      }).catch(() => caches.match('index.html'));
+      }).catch(() => shellEligible ? caches.match('index.html') : Promise.reject(new Error('offline')));
     })
   );
 });
