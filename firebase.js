@@ -73,7 +73,7 @@ function rangedPiece(url, start, end) {
   return attempt(0);
 }
 function rangedDownload(url, onProgress) {
-  var CHUNK = 512 * 1024;
+  var CHUNK = 256 * 1024;
   return timedFetch(url, { headers: { 'Range': 'bytes=0-0' } }).then(function (probe) {
     if (probe.status !== 206) {
       var e = new Error('ranges not offered'); e.rangesOff = true; throw e;
@@ -109,6 +109,11 @@ function rangedDownload(url, onProgress) {
     var e = new Error('ranges unreachable'); e.rangesOff = true; throw e;
   });
 }
+var DOWNLOAD_DROPPED =
+  'Your data dropped before the backup finished. Try again where the signal is better, ' +
+  'Wi-Fi if you can — the download comes in small pieces that each retry, so a shaky ' +
+  'connection can still finish.';
+
 function wholeDownload(url, n) {
   return timedFetch(url, {}).then(function (res) {
     if (!res.ok) throw new Error('storage replied ' + res.status);
@@ -336,6 +341,7 @@ function wholeDownload(url, n) {
     if (code === 'storage/quota-exceeded') return 'Cloud storage is full. Tell REHOTEQ.';
     if (code === 'storage/retry-limit-exceeded' || code === 'unavailable') return 'The upload did not finish — weak signal. Try again on a better connection.';
     if (code === 'storage/canceled') return 'The backup was cancelled.';
+    if (code === 'rehoteq/download-dropped') return 'Your data dropped before the backup finished. Try again where the signal is better, Wi-Fi if you can — the download comes in small pieces that each retry, so a shaky connection can still finish.';
     var msg = String((err && err.message) || err || '');
     return 'The cloud did not answer (' + (code || msg.slice(0, 80) || 'unknown') + '). Try again.';
   }
@@ -578,8 +584,12 @@ function wholeDownload(url, n) {
         }
         return h.mod.getDownloadURL(ref).then(function (url) {
           return rangedDownload(url, onProgress).catch(function (err) {
-            if (err && err.rangesOff) return wholeDownload(url, 0);
-            throw err;
+            if (err && err.rangesOff) {
+              return wholeDownload(url, 0).catch(function (err2) {
+                throw coded('rehoteq/download-dropped', DOWNLOAD_DROPPED, err2);
+              });
+            }
+            throw coded('rehoteq/download-dropped', DOWNLOAD_DROPPED, err);
           });
         }).then(asBlob);
       });

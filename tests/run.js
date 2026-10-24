@@ -167,8 +167,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v51'/.test(swSrc),
-    'the service-worker cache is bumped to v51 for the release');
+  ok(/const CACHE = 'rehoteq-field-v52'/.test(swSrc),
+    'the service-worker cache is bumped to v52 for the release');
   ok(/'zip\.js'/.test(swSrc), 'sw.js caches zip.js, or a restored phone cannot unpack offline');
   ok(/shellEligible/.test(swSrc) && /Promise\.reject\(new Error\('offline'\)\)/.test(swSrc),
     'the offline shell fallback never answers a cross-origin data request');
@@ -2302,7 +2302,7 @@ async function suiteCloudBackup(w) {
   const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
     .split(/\s+/).map(x => x.trim()).filter(Boolean);
   ok(deployList.includes('zip.js'), 'deploy.yml publishes zip.js — the app would crash on a phone without it');
-  ok(swSrc.includes('rehoteq-field-v51'), 'the service-worker cache is bumped to v51');
+  ok(swSrc.includes('rehoteq-field-v52'), 'the service-worker cache is bumped to v51');
   ok(deployList.includes('app.js') && deployList.includes('firebase.js'),
     'the rest of the shell still publishes');
 
@@ -2788,6 +2788,7 @@ async function suiteCloudBackup(w) {
     'firebase.js exposes cloudLatest, cloudUpload and cloudDownload');
   ok(/getDownloadURL/.test(fbSrc) && /'Range'/.test(fbSrc) && /rangesOff/.test(fbSrc),
     'the cloud download asks for pieces on a weak signal, and falls back when ranges are refused');
+  ok(/download-dropped/.test(fbSrc), 'a lost download says what to do, not the browser\'s raw error');
   ok(/belongs to the Google account that made it/.test(w.FB.cloudErrText({ code: 'storage/unauthorized' })) &&
      /Sign in with Google first/.test(w.FB.cloudErrText({ code: 'rehoteq/not-signed-in' })),
     'a refused bucket says the backup belongs to another account, not "check your connection"');
@@ -2907,7 +2908,7 @@ async function suiteCloudBackup(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v51'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v52'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
