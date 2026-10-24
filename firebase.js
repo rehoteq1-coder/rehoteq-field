@@ -30,6 +30,98 @@
   // is the only one a restore should ever need to find.
   var BACKUP_PATH = 'cloud-backup/latest.zip';
 
+// v1.9.3 — weak-signal downloads. A backup with photos can be several
+// megabytes; pulled in one request, any drop kills the whole restore.
+// With a download URL the file comes down in half-megabyte Range
+// pieces, each retried on its own, so a flaky connection finishes.
+// When ranges are refused, the whole file is fetched the old way,
+// with retries of its own.
+var BACKUP_TRIES = 4;
+function backupSleep(ms) {
+  return new Promise(function (r) { setTimeout(r, ms); });
+}
+function timedFetch(url, init) {
+  // A stuck connection must give up on its own, not hang the restore.
+  if (typeof AbortController === 'undefined') return fetch(url, init);
+  var ac = new AbortController();
+  var t = setTimeout(function () { try { ac.abort(); } catch (e) {} }, 60000);
+  return fetch(url, Object.assign({}, init, { signal: ac.signal })).then(
+    function (res) { clearTimeout(t); return res; },
+    function (err) { clearTimeout(t); throw err; });
+}
+function rangedPiece(url, start, end) {
+  var want = end - start + 1;
+  function attempt(n) {
+    return timedFetch(url, { headers: { 'Range': 'bytes=' + start + '-' + end } })
+      .then(function (res) {
+        if (res.status !== 206 && !(res.status === 200 && start === 0)) {
+          throw new Error('unexpected storage reply ' + res.status);
+        }
+        return res.arrayBuffer().then(function (buf) {
+          var u8 = new Uint8Array(buf);
+          if (u8.length !== want) throw new Error('short piece: ' + u8.length + ' of ' + want);
+          return u8;
+        });
+      })
+      .catch(function (err) {
+        if (n + 1 < BACKUP_TRIES) {
+          return backupSleep(700 * (n + 1)).then(function () { return attempt(n + 1); });
+        }
+        throw err;
+      });
+  }
+  return attempt(0);
+}
+function rangedDownload(url, onProgress) {
+  var CHUNK = 512 * 1024;
+  return timedFetch(url, { headers: { 'Range': 'bytes=0-0' } }).then(function (probe) {
+    if (probe.status !== 206) {
+      var e = new Error('ranges not offered'); e.rangesOff = true; throw e;
+    }
+    var cr = probe.headers.get('content-range') || '';
+    var total = parseInt(String(cr).split('/')[1], 10);
+    if (!total || isNaN(total)) {
+      var e2 = new Error('cannot size the backup'); e2.rangesOff = true; throw e2;
+    }
+    return probe.arrayBuffer().then(function (buf) {
+      var parts = [new Uint8Array(buf)], got = parts[0].length;
+      var chain = Promise.resolve();
+      for (var s = 1; s < total; s += CHUNK) {
+        (function (start) {
+          chain = chain.then(function () {
+            return rangedPiece(url, start, Math.min(start + CHUNK - 1, total - 1))
+              .then(function (u8) {
+                parts.push(u8); got += u8.length;
+                if (typeof onProgress === 'function') {
+                  try { onProgress(Math.min(99, Math.round(100 * got / total))); } catch (e) {}
+                }
+              });
+          });
+        })(s);
+      }
+      return chain.then(function () {
+        var out = new Uint8Array(total), at = 0;
+        parts.forEach(function (p) { out.set(p, at); at += p.length; });
+        return out;
+      });
+    });
+  }, function () {
+    var e = new Error('ranges unreachable'); e.rangesOff = true; throw e;
+  });
+}
+function wholeDownload(url, n) {
+  return timedFetch(url, {}).then(function (res) {
+    if (!res.ok) throw new Error('storage replied ' + res.status);
+    return res.arrayBuffer().then(function (b) { return new Uint8Array(b); });
+  }).catch(function (err) {
+    if (n + 1 < BACKUP_TRIES) {
+      return backupSleep(1000 * (n + 1)).then(function () { return wholeDownload(url, n + 1); });
+    }
+    throw err;
+  });
+}
+
+
   function cfg() { return (global.CONFIG && global.CONFIG.firebase) || null; }
 
   // An Error with a stable code, so authErrorText() can explain it.
@@ -471,16 +563,25 @@
 
     // The zip back, as a Blob. Nothing is cached on the way through: a
     // restore is a rare, deliberate act and it should get today's file.
-    cloudDownload: function () {
+    cloudDownload: function (onProgress) {
       if (!enabled() || !state.user) {
         return Promise.reject(coded('rehoteq/not-signed-in', 'Sign in first'));
       }
       var uid = state.user.uid;
       return loadStorage().then(function (h) {
         var ref = h.mod.ref(h.st, 'users/' + uid + '/' + BACKUP_PATH);
-        return h.mod.getBytes(ref).then(function (u8) {
-          return new Blob([u8], { type: 'application/zip' });
-        });
+        var asBlob = function (bytes) {
+          return (bytes instanceof Blob) ? bytes : new Blob([bytes], { type: 'application/zip' });
+        };
+        if (typeof h.mod.getDownloadURL !== 'function') {
+          return h.mod.getBytes(ref).then(asBlob);
+        }
+        return h.mod.getDownloadURL(ref).then(function (url) {
+          return rangedDownload(url, onProgress).catch(function (err) {
+            if (err && err.rangesOff) return wholeDownload(url, 0);
+            throw err;
+          });
+        }).then(asBlob);
       });
     },
 

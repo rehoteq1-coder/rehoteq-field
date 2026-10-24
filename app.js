@@ -3116,7 +3116,7 @@
           <div class="srow" onclick="ACT.cloudBackup()"><span class="si">${ICON('cloud', 17)}</span>
             <span class="sl">Back up this phone to the cloud<br>
               <span style="font-size:11px;color:var(--muted);font-weight:500">${
-                S.cloud.busy ? 'Working — do not close the app'
+                S.cloud.busy ? (S.cloud.progress != null ? 'Downloading — ' + S.cloud.progress + '% — do not close the app' : 'Working — do not close the app')
                 : S.cloud.latest && S.cloud.latest.updatedAt
                   ? 'Saved ' + dstr(S.cloud.latest.updatedAt) + ' · ' + cloudLine(S.cloud.latest) + (S.cloud.latest.email ? ' · ' + S.cloud.latest.email : '')
                   : 'One tap · jobs + photos · says the date when it is done'}</span></span>
@@ -4576,9 +4576,13 @@
         return;
       }
       S.cloud.busy = true;
+      S.cloud.progress = null;
       render();
       try {
-        const blob = await window.FB.cloudDownload();
+        const blob = await window.FB.cloudDownload(function (pct) {
+          S.cloud.progress = pct;
+          if (S.view === 'settings') render();
+        });
         const p = await unpackCloudCopy(blob);
         S.cloud.lastRestore = { at: new Date().toISOString(), from: p.exportedAt };
         const r = await applyRestore(p);
