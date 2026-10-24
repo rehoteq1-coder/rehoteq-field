@@ -2898,7 +2898,8 @@ async function suiteCloudBackup(w) {
   ok(fbSrc.includes('touchLastActive'), 'firebase.js can mark a user active');
   ok(fbSrc.includes('listUsers'), 'firebase.js exposes the owner read');
   ok(!fbSrc.includes('rehoteq@gmail.com'), 'firebase.js never hardcodes the owner email');
-  ok(rulesSrc.includes("rehoteq@gmail.com"), 'firestore.rules carry the owner emails (the rules ARE the gate)');
+  ok(rulesSrc.includes("rehoteq@gmail") && rulesSrc.includes("rehoteq1@gmail"), 'firestore.rules carry the owner emails (the rules ARE the gate)');
+  ok(rulesSrc.includes("token.email.matches("), 'firestore.rules match owner email with matches(), never toLowerCase() on a token claim');
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
