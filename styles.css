@@ -443,7 +443,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .welcome .w-mark-glow{position:absolute;inset:-26px;border-radius:50%;
   background:radial-gradient(circle at 66% 28%,rgba(34,211,238,.5),transparent 55%),
     radial-gradient(circle at 26% 74%,rgba(163,230,53,.45),transparent 55%),
-    radial-gradient(circle at 50% 50%,rgba(8,80,58,.7),transparent 72%);
+    radial-gradient(circle at 50% 50%,rgba(76,29,149,.75),transparent 72%);
   filter:blur(16px);animation:wPulse 5s ease-in-out infinite}
 @keyframes wPulse{0%,100%{opacity:.5}50%{opacity:.9}}
 .welcome .w-mark img{width:150px;height:auto;object-fit:contain;
@@ -451,7 +451,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 @keyframes wSpin{to{transform:rotate(360deg)}}
 @keyframes wFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
 @keyframes wGlow{0%,100%{filter:drop-shadow(0 6px 20px rgba(0,0,0,.45)) drop-shadow(0 0 12px rgba(163,230,53,.25))}
-  50%{filter:drop-shadow(0 6px 20px rgba(0,0,0,.45)) drop-shadow(0 0 26px rgba(56,242,216,.5))}}
+  50%{filter:drop-shadow(0 6px 20px rgba(0,0,0,.45)) drop-shadow(0 0 26px rgba(167,139,250,.55))}}
 .welcome .w-name{font-size:28px;font-weight:700;letter-spacing:.01em;margin-top:16px;
   background:linear-gradient(100deg,#FFFFFF 25%,#F3E8FF 42%,#A78BFA 54%,#FFFFFF 72%,#FFFFFF 100%);
   background-size:220% 100%;-webkit-background-clip:text;background-clip:text;
