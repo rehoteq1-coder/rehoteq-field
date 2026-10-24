@@ -167,8 +167,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v53'/.test(swSrc),
-    'the service-worker cache is bumped to v53 for the release');
+  ok(/const CACHE = 'rehoteq-field-v54'/.test(swSrc),
+    'the service-worker cache is bumped to v54 for the release');
   ok(/'zip\.js'/.test(swSrc), 'sw.js caches zip.js, or a restored phone cannot unpack offline');
   ok(/shellEligible/.test(swSrc) && /Promise\.reject\(new Error\('offline'\)\)/.test(swSrc),
     'the offline shell fallback never answers a cross-origin data request');
@@ -2302,7 +2302,7 @@ async function suiteCloudBackup(w) {
   const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
     .split(/\s+/).map(x => x.trim()).filter(Boolean);
   ok(deployList.includes('zip.js'), 'deploy.yml publishes zip.js — the app would crash on a phone without it');
-  ok(swSrc.includes('rehoteq-field-v53'), 'the service-worker cache is bumped to v51');
+  ok(swSrc.includes('rehoteq-field-v54'), 'the service-worker cache is bumped to v51');
   ok(deployList.includes('app.js') && deployList.includes('firebase.js'),
     'the rest of the shell still publishes');
 
@@ -2831,7 +2831,7 @@ async function suiteCloudBackup(w) {
   async function suiteWelcomeTrial() {
     const wApp = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
     const wCss = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
-    ok(wCss.includes('#6D28D9') && !wCss.includes('#0E7C5A'), 'the app wears the violet brand, not the old emerald');
+    ok(wCss.includes('#6D28D9') && wCss.includes('#1E1B4B') && !wCss.includes('#0E7C5A') && !wCss.includes('#06281D'), 'the app wears the violet brand, not the old emerald');
     ok(wCss.indexOf('data:font/woff2') !== -1 && wCss.indexOf("'Space Grotesk'") !== -1,
       'the splash carries its Space Grotesk display font, embedded and offline-safe');
     ok(/teamadd: 'Add a technician'/.test(wApp),
@@ -2909,7 +2909,7 @@ async function suiteCloudBackup(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v53'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v54'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');
