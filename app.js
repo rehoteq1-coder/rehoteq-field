@@ -5203,6 +5203,10 @@
     S.welcomeSeen = await DB.getMeta('welcomeSeen');
     if (S.pendingInvite && S.user && !S.user.memberOf && myRole() === 'none' && !teamState().company) {
       go('team');
+    } else if (new URLSearchParams(location.search).get('preview') === 'welcome') {
+      // Preview hook: field.rehoteq.com/?preview=welcome shows the welcome
+      // screen without touching anyone's session state.
+      go('welcome');
     } else {
       go(S.user ? 'home' : (S.welcomeSeen ? 'boot' : 'welcome'));
     }
