@@ -167,7 +167,7 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v46'/.test(swSrc),
+  ok(/const CACHE = 'rehoteq-field-v47'/.test(swSrc),
     'the service-worker cache is bumped to v46 for the release');
   ok(/'zip\.js'/.test(swSrc), 'sw.js caches zip.js, or a restored phone cannot unpack offline');
 
@@ -2185,6 +2185,75 @@ function findSequence(hay, needle) {
   return -1;
 }
 
+async function suiteLiveSync(w) {
+  suite = 'live sync (stage 1: job records)';
+
+  const appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const fbSrc = fs.readFileSync(path.join(ROOT, 'firebase.js'), 'utf8');
+  const rulesSrc = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
+
+  ok(fbSrc.includes('syncPush:'), 'firebase.js exposes syncPush');
+  ok(fbSrc.includes('syncWatch:'), 'firebase.js exposes syncWatch');
+  ok(appSrc.includes('scheduleSync()'), 'the app schedules a live push after every save');
+  ok(appSrc.includes('ACT.liveSyncInfo()'), 'Settings carries the Live sync row');
+  ok(/resource\.data\.companyId != null && isMember\(resource\.data\.companyId\)/.test(rulesSrc),
+    'firestore.rules let company members read company jobs');
+  ok(/allow update: if signedIn\(\) && \(owns\(\) \|\| assigned\(\)\)/.test(rulesSrc),
+    'firestore.rules still keep job writes to owner and assignee');
+  ok(!/allow read, write: if isMember/.test(rulesSrc), 'the widening never opens writes');
+
+  // Behavioural: a fake cloud records pushes and hands the app its watch.
+  const page = bootApp();
+  await sleep(150);
+  const pushes = [];
+  const prevPush = page.FB.syncPush, prevWatch = page.FB.syncWatch;
+  page.FB.syncPush = doc => { pushes.push(doc); return Promise.resolve(); };
+  let watchCb = null;
+  page.FB.syncWatch = cb => { watchCb = cb; return () => {}; };
+
+  page.ACT._fbUser({ uid: 'sync-u1', email: 'sync-u1@x' });
+  page.dispatchEvent(new page.Event('online'));
+  await page.ACT._flushSyncForTest();
+
+  const j1 = {
+    id: 'sync-job-1', ref: 'SYN-001', trade: 't', jobType: 'test', customer: {},
+    status: 'draft', createdAt: '2026-10-23T10:00:00.000Z', updatedAt: '2026-10-23T10:00:00.000Z'
+  };
+  await page.DB.put('jobs', j1);
+  page.DB.queue({ type: 'job.upsert', id: 'sync-job-1' });
+  page.DB.queue({ type: 'team.update', id: 'sync-job-1' });
+  await page.ACT._flushSyncForTest();
+  const mine = pushes.filter(p => p.id === 'sync-job-1');
+  ok(mine.length === 2, 'the flush pushed every queued job op to the cloud');
+  ok(mine[0] && mine[0].ownerId === 'sync-u1', 'a job this phone created carries its owner');
+  const stillPending = (await page.DB.pending()).filter(o => o.op &&
+    (o.op.type === 'job.upsert' || o.op.type === 'team.assign' || o.op.type === 'team.update'));
+  ok(stillPending.length === 0, 'a job the cloud accepted leaves the sync queue');
+
+  // A newer remote copy lands; an older one cannot clobber local work.
+  ok(typeof watchCb === 'function', 'the app registered its live-sync listener');
+  if (watchCb) {
+    await page.ACT._applyRemoteForTest('sync-job-1',
+      Object.assign({}, j1, { updatedAt: '2026-10-23T11:00:00.000Z', status: 'sent' }));
+    const newer = await page.DB.get('jobs', 'sync-job-1');
+    ok(newer && newer.status === 'sent', 'a newer remote job lands on this phone');
+    await page.ACT._applyRemoteForTest('sync-job-1',
+      Object.assign({}, j1, { updatedAt: '2026-10-23T09:00:00.000Z' }));
+    const kept = await page.DB.get('jobs', 'sync-job-1');
+    ok(kept && kept.status === 'sent', 'an older remote copy cannot clobber local work');
+    await page.ACT._applyRemoteForTest('sync-new-1', Object.assign({}, j1, { id: 'sync-new-1' }));
+    ok(await page.DB.get('jobs', 'sync-new-1'), 'a job this phone never saw is added');
+    await page.ACT._applyRemoteForTest('sync-gone-1',
+      Object.assign({}, j1, { id: 'sync-gone-1', deletedAt: '2026-10-23T12:00:00.000Z' }));
+    ok(!(await page.DB.get('jobs', 'sync-gone-1')), 'a deleted remote job is not added');
+  }
+
+  // Clean up so later suites do not meet these rows.
+  for (const id of ['sync-job-1', 'sync-new-1']) await page.DB.del('jobs', id);
+  page.FB.syncPush = prevPush; page.FB.syncWatch = prevWatch;
+  page.ACT._fbUser(null);
+}
+
 async function suiteCloudBackup(w) {
   describe('13. Cloud backup — one zip, one account');
 
@@ -2205,7 +2274,7 @@ async function suiteCloudBackup(w) {
   const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
     .split(/\s+/).map(x => x.trim()).filter(Boolean);
   ok(deployList.includes('zip.js'), 'deploy.yml publishes zip.js — the app would crash on a phone without it');
-  ok(swSrc.includes('rehoteq-field-v46'), 'the service-worker cache is bumped to v46');
+  ok(swSrc.includes('rehoteq-field-v47'), 'the service-worker cache is bumped to v46');
   ok(deployList.includes('app.js') && deployList.includes('firebase.js'),
     'the rest of the shell still publishes');
 
@@ -2784,6 +2853,7 @@ async function suiteCloudBackup(w) {
   await suiteLandingAndOwner(w);
   await suiteAccountsQuota(w);
   await suiteCloudBackup(w);
+  await suiteLiveSync(w);
 
   /* ---- suite 10: admin page (Field HQ) ------------------------------ */
   suite = 'admin page';
@@ -2806,7 +2876,7 @@ async function suiteCloudBackup(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v46'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v47'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');

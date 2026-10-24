@@ -484,6 +484,40 @@
       });
     },
 
+    // ---- live sync (stage 1: job records) ------------------------------
+    // One job record lives in Firestore at jobs/{jobId}; every signed-in
+    // phone of the team reads and pushes there (see firestore.rules). The
+    // doc carries the job as the pushing phone holds it plus a syncedAt
+    // stamp. The owner field is the app's business and is never rewritten
+    // here: the rules only let an owner or an assignee update a job, so
+    // a worker pushing an assigned job must keep the boss's owner stamp.
+
+    syncPush: function (job) {
+      if (!enabled() || !state.user || !state.db) {
+        return Promise.reject(coded('rehoteq/not-signed-in', 'Sign in first'));
+      }
+      var doc = JSON.parse(JSON.stringify(job));
+      doc.syncedAt = new Date().toISOString();
+      var fs = state.mods.fs;
+      return fs.setDoc(fs.doc(state.db, 'jobs', String(doc.id)), doc)
+        .then(function () { return true; });
+    },
+
+    // Watch the shared jobs collection and hand every change to the app.
+    // The rules decide what this phone may read, so a doc this phone has
+    // no right to simply never arrives — the listener does not error on
+    // it. Returns the unsubscribe function, or null when there is
+    // nothing to watch.
+    syncWatch: function (onDoc) {
+      if (!enabled() || !state.user || !state.db) return null;
+      var fs = state.mods.fs;
+      return fs.onSnapshot(fs.collection(state.db, 'jobs'), function (snap) {
+        snap.forEach(function (d) {
+          try { onDoc(d.id, d.data()); } catch (e) { /* one bad copy must not stop the rest */ }
+        });
+      }, function () { /* the watch dies quietly; the backup still carries the work */ });
+    },
+
     cloudErrText: cloudErrText,
 
     db: function () { return state.db; }
