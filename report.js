@@ -358,6 +358,8 @@
     c.pages.forEach((pg, i) => {
       PDFT.line(pg, M, PDFT.PH - 40, M + CW, PDFT.PH - 40, LINE, 0.6);
       PDFT.text(pg, M, PDFT.PH - 30, job.ref + ' · ' + company, { size: 7, color: MUTED });
+      PDFT.text(pg, M, PDFT.PH - 21, 'Made with REHOTEQ Field · ' + ((CFG && CFG.domain) || 'field.rehoteq.com'),
+        { size: 6.5, color: MUTED });
       const lbl = 'Page ' + (i + 1) + ' of ' + n;
       PDFT.text(pg, M + CW - PDFT.width(lbl, 7, false), PDFT.PH - 30, lbl, { size: 7, color: MUTED });
     });
@@ -481,6 +483,8 @@
     c.pages.forEach((pg, i) => {
       PDFT.line(pg, M, PDFT.PH - 40, M + CW, PDFT.PH - 40, LINE, 0.6);
       PDFT.text(pg, M, PDFT.PH - 30, q.number + ' · ' + company, { size: 7, color: MUTED });
+      PDFT.text(pg, M, PDFT.PH - 21, 'Made with REHOTEQ Field · ' + ((CFG && CFG.domain) || 'field.rehoteq.com'),
+        { size: 6.5, color: MUTED });
     });
 
     return PDFT.build(c.doc);

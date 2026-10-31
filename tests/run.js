@@ -145,7 +145,7 @@ async function suiteSurface(w) {
   eq(Object.values(w.DATA.JOB_TYPES).flat().length, 50, 'the job-type catalog has exactly 50 entries');
   eq(Object.keys(w.DATA.CHECKLISTS).length, 16, 'the checklist catalog has exactly 16 entries');
   eq(w.DATA.LIBRARY.length, 18, 'the troubleshooting library has exactly 18 guides');
-  eq(require(path.join(ROOT, 'package.json')).version, '1.9.0', 'package metadata is version 1.9.0');
+  eq(require(path.join(ROOT, 'package.json')).version, '1.10.0', 'package metadata is version 1.10.0');
 }
 
 /* =====================================================================
@@ -167,8 +167,8 @@ async function suiteIcons(w) {
   ok(w.__scripts.indexOf('icons.js') < w.__scripts.indexOf('app.js'),
     'icons.js loads before app.js, so ICON() exists when the first view renders');
   ok(/'icons\.js'/.test(swSrc), 'sw.js caches icons.js, or offline is a screen of dots');
-  ok(/const CACHE = 'rehoteq-field-v58'/.test(swSrc),
-    'the service-worker cache is bumped to v58 for the release');
+  ok(/const CACHE = 'rehoteq-field-v59'/.test(swSrc),
+    'the service-worker cache is bumped to v59 for the release');
   ok(/'zip\.js'/.test(swSrc), 'sw.js caches zip.js, or a restored phone cannot unpack offline');
   ok(/shellEligible/.test(swSrc) && /Promise\.reject\(new Error\('offline'\)\)/.test(swSrc),
     'the offline shell fallback never answers a cross-origin data request');
@@ -2302,7 +2302,7 @@ async function suiteCloudBackup(w) {
   const deployList = ((deployYml.match(/for f in([\s\S]*?); do/) || ['', ''])[1])
     .split(/\s+/).map(x => x.trim()).filter(Boolean);
   ok(deployList.includes('zip.js'), 'deploy.yml publishes zip.js — the app would crash on a phone without it');
-  ok(swSrc.includes('rehoteq-field-v58'), 'the service-worker cache is bumped to the current release');
+  ok(swSrc.includes('rehoteq-field-v59'), 'the service-worker cache is bumped to the current release');
   ok(deployList.includes('app.js') && deployList.includes('firebase.js'),
     'the rest of the shell still publishes');
 
@@ -2804,7 +2804,7 @@ async function suiteCloudBackup(w) {
   eq((swSrc.match(/const SHELL = \[([\s\S]*?)\]/) || ['', ''])[1].includes('gstatic'), false,
     'the Storage SDK is not precached either');
 
-  ok(/APP_VERSION = '1\.9\.0'/.test(appSrc), 'the app knows it is v1.9.0');
+  ok(/APP_VERSION = '1\.10\.0'/.test(appSrc), 'the app knows it is v1.10.0');
   ok(/Back up this phone to the cloud/.test(appSrc) && /Restore from the cloud/.test(appSrc) &&
      /BACKUP\.pack\(\)/.test(appSrc) && /BACKUP\.unpack\(/.test(appSrc),
     'the cloud rows are wired to the real pack and unpack, not to a description of them');
@@ -2915,7 +2915,7 @@ async function suiteCloudBackup(w) {
   ok(appSrc.includes('FB.touchLastActive()'), 'the app marks the signed-in user active on open');
   const swSrc = safe(() => fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
   ok(swSrc.includes("'admin.html'") && swSrc.includes("'admin.js'"), 'the service worker precaches the admin page');
-  ok(swSrc.includes('rehoteq-field-v58'), 'cache bumped so installed phones pick up the admin page');
+  ok(swSrc.includes('rehoteq-field-v59'), 'cache bumped so installed phones pick up the admin page');
   ok(fbSrc.includes('sendFeedback') && fbSrc.includes('listFeedback'),
     'firebase.js exposes the internal feedback box');
   ok(appSrc.includes('ACT.sendFeedback()'), 'Settings carries the Send feedback row');

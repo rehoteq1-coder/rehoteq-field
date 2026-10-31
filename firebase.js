@@ -466,6 +466,43 @@ function wholeDownload(url, n) {
         .catch(function () { /* offline is fine, next open retries */ });
     },
 
+    // ---- referral (v1.10.0) -------------------------------------------
+    // The signed-in account stamps its own stable invite code onto its user
+    // record, so invites can be counted against it without anyone reading
+    // someone else's record. Cosmetic write: failure retries next sign-in.
+    saveRefCode: function (code) {
+      if (!enabled() || !state.user || !state.db || !code) return Promise.resolve();
+      var fs = state.mods.fs;
+      return fs.setDoc(fs.doc(state.db, 'users', state.user.uid),
+        { refCode: String(code) }, { merge: true })
+        .catch(function () { /* cosmetic; retry next sign-in */ });
+    },
+
+    // One referral per account: referrals/{refereeUid}, written once by the
+    // referee at their first sign-in after opening an invite link. The
+    // rules reject a rewrite, so a repeat sign-in is inert, not a duplicate.
+    recordReferral: function (code) {
+      if (!enabled() || !state.user || !state.db) return Promise.reject(new Error('offline'));
+      var fs = state.mods.fs;
+      return fs.setDoc(fs.doc(state.db, 'referrals', state.user.uid), {
+        code: String(code || '').toUpperCase(),
+        refereeUid: state.user.uid,
+        createdAt: fs.serverTimestamp()
+      });
+    },
+
+    // How many invites this code has landed. null means "could not ask"
+    // (offline, or the rules said no); the UI shows a quiet dash, never a
+    // wrong number.
+    referralCount: function (code) {
+      if (!enabled() || !state.user || !state.db || !code) return Promise.resolve(null);
+      var fs = state.mods.fs;
+      return fs.getDocs(fs.query(fs.collection(state.db, 'referrals'),
+        fs.where('code', '==', String(code))))
+        .then(function (snap) { return snap.size; })
+        .catch(function () { return null; });
+    },
+
     // Internal feedback box. Any signed-in user may post a note to HQ;
     // only the owner may read them (firestore.rules /feedback).
     sendFeedback: function (text) {

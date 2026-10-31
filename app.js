@@ -13,7 +13,7 @@
   // One place the version lives. It is printed in Settings and written
   // into every cloud backup label, so "which build made this backup" is
   // answerable months later.
-  const APP_VERSION = '1.9.0';
+  const APP_VERSION = '1.10.0';
 
   const $ = id => document.getElementById(id);
   const app = () => $('app');
@@ -42,6 +42,7 @@
     // Firestore as soon as sign-in resolves. `busy` stops a second tap
     // while an upload or a restore is in flight.
     cloud: { latest: null, busy: false, fromCache: false, lastRestore: null },
+    refCount: null,   // how many invites this account's code has landed (null = not asked yet)
     // v1.8.4 account self-diagnosis: what the last "Account check" found,
     // so the answer stays on the screen instead of scrolling past in a
     // toast.
@@ -3018,6 +3019,9 @@
           </div>
         </div>
         <button class="btn primary" onclick="ACT.quotePdf()">${ICON('file-text', 16)} Generate quotation PDF</button>
+        <div class="btnrow" style="margin-top:8px">
+          <button class="btn ghost sm" style="flex:1" onclick="ACT.quoteWa()">${ICON('share-2', 14)} Message the customer on WhatsApp</button>
+        </div>
       </div>`;
   };
 
@@ -3150,6 +3154,10 @@
             <span class="sl">Restore from backup<br>
               <span style="font-size:11px;color:var(--muted);font-weight:500">A .zip from the cloud, or an older .json file</span></span>
             <span style="color:#94A3B8">›</span></div>
+        </div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch">Invite &amp; earn</div>
+          ${referralCardHtml()}
         </div>
         <div class="card" style="margin-bottom:12px">
           <div class="ch">Support</div>
@@ -4860,6 +4868,35 @@
       toast(copied ? 'Link copied' : 'Could not copy', copied ? "Paste it in the client's chat or email" : 'Use WhatsApp or Email instead');
     },
 
+    async shareReferral(kind) {
+      const code = referralCode();
+      if (!code) return toast('Create your profile first', 'Then your invite code appears here');
+      const link = CONFIG.origin + '/?ref=' + code;
+      const msg = 'I dey use REHOTEQ Field to run my jobs — quotes and receipts sharp sharp. Try am: ' + link;
+      if (kind === 'wa') { window.open(CONFIG.waUrl(msg), '_blank'); return; }
+      let copied = false;
+      try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(link); copied = true; } } catch (e) { /* fall through */ }
+      if (!copied) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = link; document.body.appendChild(ta); ta.select();
+          copied = document.execCommand('copy'); document.body.removeChild(ta);
+        } catch (e) { /* fall through */ }
+      }
+      toast(copied ? 'Invite link copied' : 'Could not copy', copied ? 'Paste it in any chat — the code rides in the link' : 'Use WhatsApp instead');
+    },
+
+    // Quotation finish line: aim WhatsApp at the customer with a short
+    // hello and the total, so the PDF that follows lands in the right chat.
+    async quoteWa() {
+      const q = S.quote;
+      if (!q) return toast('No quotation on screen', 'Create a quotation first');
+      const num = CONFIG.waNumber(q.customer && q.customer.phone) || '';
+      const msg = 'Hello, quotation ' + q.number + ' from ' + ((S.user && S.user.company) || 'REHOTEQ') +
+        '. Total: ' + money(q.total) + '. The PDF follows in my next message.';
+      window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(msg), '_blank');
+    },
+
     async joinFromLink() {
       const f = S.pendingInvite;
       if (!f) return toast('No invite waiting', 'Ask your oga to resend the link');
@@ -5201,6 +5238,15 @@
     const all = await DB.all('photos');
     all.forEach(p => { if (!p.url && p.blob) p.url = URL.createObjectURL(p.blob); });
     S.welcomeSeen = await DB.getMeta('welcomeSeen');
+    // Referral capture (v1.10.0): field.rehoteq.com/?ref=REH-XXXXXX parks the
+    // code on this device; the moment this visitor signs in, it is written
+    // to referrals/{uid}. Offline-first: a failed park is silently skipped.
+    try {
+      const refParam = new URLSearchParams(location.search).get('ref');
+      if (refParam && /^[A-Za-z0-9-]{4,24}$/.test(refParam)) {
+        await DB.setMeta('pendingRef', refParam.toUpperCase());
+      }
+    } catch (e) { /* storage unavailable; referral is optional */ }
     if (S.pendingInvite && S.user && !S.user.memberOf && myRole() === 'none' && !teamState().company) {
       go('team');
     } else if (new URLSearchParams(location.search).get('preview') === 'welcome') {
@@ -5243,8 +5289,88 @@
         ? (t.toDate ? t.toDate().toISOString() : new Date(t).toISOString())
         : null;
       DB.setMeta('user', S.user);
+      const myCode = referralCode();
+      if (myCode && rec.refCode !== myCode) window.FB.saveRefCode(myCode);
+      window.FB.referralCount(myCode).then(function (n) {
+        if (typeof n === 'number') { S.refCount = n; if (S.view === 'settings') render(); }
+      }).catch(function () { /* the count is cosmetic; a dash is fine */ });
       if (S.view === 'home' || S.view === 'settings') render();
     }).catch(function () { /* offline: the app keeps working */ });
+  }
+
+  /* ---- referral (v1.10.0) -------------------------------------------
+     Every technician carries a stable invite code, derived from the
+     signed-in account (or the local profile), so the same person always
+     shares the same link and nothing extra needs storing. The invitee's
+     sign-in writes one referrals/{uid} document; the referrer's Settings
+     card counts the ones that landed. Reward fulfilment stays human for
+     now: the owner confirms each referral in Field HQ and switches Pro
+     on — no client-side entitlement writes, ever. */
+  function referralSource() {
+    if (S.fbUser && S.fbUser.uid) return 'u:' + S.fbUser.uid;
+    if (S.user && (S.user.phone || S.user.name)) return 'p:' + (S.user.phone || '') + '|' + (S.user.name || '');
+    return '';
+  }
+  function referralCode() {
+    const src = referralSource();
+    if (!src) return null;
+    let h1 = 0x811c9dc5, h2 = 0x1000193;
+    for (let i = 0; i < src.length; i++) {
+      h1 = ((h1 ^ src.charCodeAt(i)) * 16777619) >>> 0;
+      h2 = ((h2 + src.charCodeAt(i) * (i + 7)) * 2654435761) >>> 0;
+    }
+    const CH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let x = (h1 ^ h2) >>> 0, code = '';
+    for (let i = 0; i < 6; i++) {
+      code += CH[x & 31];
+      x = ((x >>> 5) ^ (h2 >>> (i % 16))) >>> 0;
+      x = (x * 2654435761 + i + 1) >>> 0;
+    }
+    return 'REH-' + code;
+  }
+  function referralCardHtml() {
+    const code = referralCode();
+    if (!code) return '<div class="hintline">Create your profile to get your invite code.</div>';
+    const tail = (typeof S.refCount === 'number' && S.fbUser)
+      ? ' ' + S.refCount + ' invite' + (S.refCount === 1 ? ' has' : 's have') + ' landed so far.'
+      : '';
+    if (!S.fbUser) {
+      return '<div class="srow" style="cursor:default"><span class="si">' + ICON('gift', 17) + '</span>' +
+        '<span class="sl">Your code is <b class="mono">' + esc(code) + '</b><br>' +
+        '<span style="font-size:11px;color:var(--muted);font-weight:500">Sign in with Google so your invites count and your rewards land</span></span></div>';
+    }
+    return '<div class="srow" style="cursor:default"><span class="si">' + ICON('gift', 17) + '</span>' +
+      '<span class="sl">Invite a fellow artisan<br>' +
+      '<span style="font-size:11px;color:var(--muted);font-weight:500">You both get one month of Pro when they join.' + tail + '</span></span></div>' +
+      '<div class="btnrow" style="margin-top:8px">' +
+      '<button class="btn ghost sm" style="flex:1" onclick="ACT.shareReferral(\'wa\')">' + ICON('share-2', 14) + ' WhatsApp</button>' +
+      '<button class="btn ghost sm" style="flex:1" onclick="ACT.shareReferral(\'copy\')">' + ICON('clipboard-list', 14) + ' Copy link</button>' +
+      '</div>';
+  }
+  async function recordPendingReferral() {
+    if (!window.FB || !window.FB.enabled() || !S.fbUser) return;
+    let pending = null;
+    try { pending = await DB.getMeta('pendingRef'); } catch (e) { return; }
+    if (!pending) return;
+    const mine = referralCode();
+    if (mine && String(pending).toUpperCase() === mine) {
+      // Your own link came back to you: nothing to record.
+      await DB.setMeta('pendingRef', null);
+      return;
+    }
+    try {
+      await window.FB.recordReferral(pending);
+      await DB.setMeta('pendingRef', null);
+    } catch (e) {
+      const msg = String((e && e.code) || (e && e.message) || e);
+      if (/permission/i.test(msg)) {
+        // The rules reject the rewrite, which means this account already
+        // recorded its referral. The job is done either way.
+        await DB.setMeta('pendingRef', null);
+      }
+      // Anything else (offline, throttled): the code stays parked for the
+      // next signed-in open.
+    }
   }
 
   // Firebase is optional and inert until config.js switches it on. When it
@@ -5259,6 +5385,7 @@
           DB.setMeta('user', S.user);
         }
         hydrateEntitlement();
+        recordPendingReferral();
         refreshCloudInfo();
         return;
       }
@@ -5276,6 +5403,7 @@
         DB.setMeta('user', S.user);
       }
       if (u) hydrateEntitlement();
+      if (u) recordPendingReferral();
       if (u) refreshCloudInfo();     // v1.9.0: what the cloud holds for THIS account
       if (u) FB.touchLastActive();   // Field HQ: last-active register, silent on failure
       // Live sync follows the signed-in account: watch the shared jobs

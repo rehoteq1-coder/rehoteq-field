@@ -182,6 +182,28 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    /* ---- referrals (v1.10.0) ------------------------------------------ */
+
+    // One document per invited account, written once by the referee at
+    // their first sign-in after opening an invite link. The referrer is
+    // never named here — only the code they shared — so a referral
+    // document leaks nothing about either party. Reading is limited to
+    // the referee and to whoever's own user record carries the matching
+    // refCode (the referrer counting their invites).
+    match /referrals/{refereeUid} {
+      allow read: if isSelf(refereeUid)
+        || (request.auth != null
+            && resource.data.code == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.refCode);
+
+      allow create: if isSelf(refereeUid)
+        && request.resource.data.code is string
+        && request.resource.data.code.matches('^REH-[A-Z0-9]{6}$')
+        && request.resource.data.refereeUid == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+
+      allow update, delete: if false;
+    }
+
     /* ---- internal feedback ------------------------------------------- */
 
     // The in-app feedback box. Any signed-in technician may send a note
